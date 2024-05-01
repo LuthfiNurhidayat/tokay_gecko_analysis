@@ -1,0 +1,1626 @@
+---
+title: "gecktrans_fin_figures"
+author: "Luthfi Nurhidayat"
+date: "2022-11-22"
+output: html_document
+---
+
+
+
+### Load libraries and set working directories
+
+```{r}
+###---> ThreeDRNAseq R package
+library(ThreeDRNAseq)
+
+###---> Denpendency R package
+library(tximport)
+library(edgeR)
+library(limma)
+library(RUVSeq)
+library(eulerr)
+library(gridExtra)
+library(grid)
+library(ComplexHeatmap)
+library(ggplot2)
+library(ggrepel)
+
+```
+
+
+
+```{r}
+##load library
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(ggrepel)
+library(tximport)
+library(DESeq2)
+library(apeglm)
+library(BiocParallel)
+library(eulerr)
+library(limma)
+library(goseq)
+library(biomaRt)
+library(fdrtool)
+library(pathview)
+library(ensembldb)
+library(AnnotationHub)
+library(tibble)
+library(clusterProfiler)
+library(geneLenDataBase)
+library(topGO)
+library(KEGGREST)
+library(Rgraphviz)
+library(enrichplot)
+# we use ggplot2 to add x axis labels (ex: ridgeplot)
+library(ggplot2)
+library(WebGestaltR)
+library(fgsea)
+```
+
+```{r}
+options(stringsAsFactors=F)
+setwd("D:/RNAseqanalysis/gecktrans")
+```
+
+
+
+##Load 3Drnaseq intermediate data
+
+```{r}
+##load all genes data
+
+#load("G:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/3drnaseq/3D_fin_allgenes_output/data/intermediate_data.RData")
+#load("G:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/3drnaseq/3D_fin_allgenes_output/data/txi_genes.RData")
+
+##Load annotated genes data only
+load("G:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/3drnaseq/3D_fin_annoonly_output2/data/intermediate_data.RData")
+load("G:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/3drnaseq/3D_fin_annoonly_output2/data/txi_genes.RData")
+
+```
+
+
+##data generation
+```{r}
+################################################################################
+##----->> Meta table includes sample information, e.g. conditions, bio-reps, seq-reps, abundance paths, etc.
+metatable <- intermediate_data$samples_new
+##select the columns of experimental design
+factor_col <- c('Condition','Timeline')
+brep_col <- 'Replicate'
+quant_col <- 'quant.path'
+
+##arrange information in the metatable
+metatable$label <- as.vector(interaction(metatable[,factor_col]))
+metatable$sample.name <- as.vector(interaction(metatable[,c(factor_col,brep_col)]))
+
+##----->> Transcript-gene association mapping
+mapping <- intermediate_data$mapping
+mapping <- data.frame(as.matrix(mapping),stringsAsFactors = F)
+rownames(mapping) <- intermediate_data$mapping$TXNAME
+```
+
+
+##creating the heatmaps
+
+##load data
+```{r}
+library(readr)
+GeneTPM <- intermediate_data$genes_TPM
+toolkit_genes <- read_csv("G:/Data Luthfi/PHD/Gecko's Sequence/Assembly/newquantanuki/toolkitgenesup.csv")
+hox_genes <- read_csv("G:/Data Luthfi/PHD/Gecko's Sequence/Assembly/newquantanuki/hoxgenesup.csv")
+
+```
+
+##data filter
+```{r}
+GeneTPM <- data.frame(GeneTPM)
+#gene_id <- toolkit_genes
+#hox_id <- hox_genes
+#gene_id2 <- toolkit_genes_filt
+#gene_id3 <- toolkit_genes_clust1to4
+#gene_id4 <- toolkit_genes_clust5to10
+toolkitcounts <- filter (GeneTPM, row.names(GeneTPM)  %in% toolkit_genes$gene)
+#write.csv(toolkitcounts, "H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/heatmap/toolkitgenesgeck_TPM2.csv", row.names = TRUE)
+hoxcounts <- filter (GeneTPM, row.names(GeneTPM)  %in% hox_genes$gene)
+#write.csv(hoxcounts, "H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/heatmap/hoxgenesgeck_TPM2.csv", row.names = TRUE)
+
+```
+
+
+
+##creating heatmap for all significant DE genes
+
+```{r}
+targets <- unique(intermediate_data$DE_genes$target)
+data2heatmap <- txi_genes$abundance[targets,]
+column_title <- paste0(length(targets),'Significant DE genes of Embryonic and Regenerating Tail on Tokay Gecko')
+data2plot <- rowmean(x = t(data2heatmap),
+                     group = metatable$label,
+                     reorder = F)
+data2plot <- t(scale(data2plot))
+hc.dist <- dist(data2plot,method = "euclidean")
+hc <- fastcluster::hclust(hc.dist,method = "ward.D")
+clusters <- cutree(hc, k = 10)
+clusters <- reorderClusters(clusters = clusters,dat = data2plot)
+
+### save the target list in each cluster to result folder
+x <- split(names(clusters),clusters)
+x <- lapply(names(x),function(i){
+  data.frame(Clusters=i,Targets=x[[i]])
+})
+x <- do.call(rbind,x)
+colnames(x) <- c('Clusters','Targets')
+```
+
+```{r}
+data2plot2 <- subset(data2plot, select=c(7,1,2,3,4,5,6))
+```
+
+
+```{r}
+g <- Heatmap(as.matrix(data2plot2), name = 'logTPM', 
+             cluster_rows = FALSE,
+             clustering_method_rows='ward.D',
+             row_dend_reorder = T,
+             show_row_names = T, 
+             row_order = sort(rownames(as.matrix(data2plot2))),
+             show_column_names = ifelse(ncol(data2plot2)>10,F,T),
+             column_order = colnames(as.matrix(data2plot2)),
+             row_names_gp = gpar(fontsize = 3),
+             width = unit(5, "inch"), 
+             height = unit(200, "inch"),
+             cluster_columns = F,
+             split=clusters,
+             column_km = 1,
+             column_title= column_title)
+
+
+draw(g,column_title='Developmental Stages',column_title_side = "bottom")
+```
+
+
+```{r}
+### save to figure
+png('G:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/heatmap/SignificantDEgenes2.png',
+    width = pmax(25,1)/2.54,height = 550/2.54,
+    units = 'in',res = 300)
+draw(g,column_title='Developmental Stages',column_title_side = "bottom")
+dev.off()
+pdf(paste0('G:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/heatmap/SignificantDEgenes2.pdf'),
+   width = pmax(25,1)/2.54,height = 550/2.54)
+draw(g,column_title='Developmental Stages',column_title_side = "bottom")
+dev.off()
+```
+
+
+```{r}
+g2 <- Heatmap(as.matrix(data2plot2), name = 'z-score', 
+             cluster_rows = TRUE,
+             clustering_method_rows='ward.D',
+             row_dend_reorder = T,
+             show_row_names = FALSE, 
+             #row_order = sort(rownames(as.matrix(data2plot2))),
+             show_column_names = ifelse(ncol(data2plot2)>10,F,T),
+             column_order = colnames(as.matrix(data2plot2)),
+            # row_names_gp = gpar(fontsize = 3),
+             width = unit(7, "inch"), 
+             height = unit(14, "inch"),
+             cluster_columns = F,
+             split=clusters,
+             column_km = 1,
+             column_title= column_title)
+
+
+draw(g2,column_title='Developmental Stages',column_title_side = "bottom")
+```
+
+```{r}
+### save to figure
+png('G:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/figures/SignificantDEgenes3.png',
+    width = pmax(25,1)/2.54,height = 50/2.54,
+    units = 'in',res = 300)
+draw(g2,column_title='Developmental Stages',column_title_side = "bottom")
+dev.off()
+```
+
+
+
+##load toolkit gene as a dataframe and remove rows with all zero value
+```{r}
+toolkit_counts <- df2[which(rowSums(df2[,2:ncol(df2)]) > 0), ]
+##toolkit_counts2 <- data.frame(toolkit_counts[,2:ncol(toolkit_counts)])
+```
+
+
+
+```{r}
+tkgenes <- read_csv("H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/newquantanuki/toolkitgenesup2.csv")
+tkgenes <- unique(tkgenes)
+sigTKgenes <- filter (toolkitcounts, row.names(toolkitcounts)  %in% targets)
+```
+
+
+##create heatmap for significant toolkit genes
+```{r}
+##----->> DE genes
+targets <- row.names(sigTKgenes)
+data2heatmap <- sigTKgenes
+column_title <- paste0(length(targets),'Significant DE toolkit genes of Embryonic and Regenerating Tail on Tokay Gecko')
+data2plot <- rowmean(x = t(data2heatmap),
+                     group = metatable$label,
+                     reorder = F)
+data2plot <- t(scale(data2plot))
+data2plot <- data2plot[complete.cases(data2plot),]
+row.names(data2plot) <- targets
+hc.dist <- dist(data2plot,method = "euclidean")
+hc <- fastcluster::hclust(hc.dist,method = "ward.D")
+clusters <- cutree(hc, k = 10)
+clusters <- reorderClusters(clusters = clusters,dat = data2plot)
+
+```
+
+
+```{r}
+x <- split(names(clusters),clusters)
+x <- lapply(names(x),function(i){
+  data.frame(Clusters=i,Targets=x[[i]])
+})
+x <- do.call(rbind,x)
+colnames(x) <- c('Clusters','Targets')
+```
+
+
+```{r}
+data2plot2 <- subset(data2plot, select=c(7,1,2,3,4,5,6))
+```
+
+
+```{r}
+g <- Heatmap(as.matrix(data2plot), name = 'z-score', 
+             cluster_rows = FALSE,
+             clustering_method_rows='ward.D',
+             row_dend_reorder = T,
+             show_row_names = T, 
+             row_order = sort(rownames(as.matrix(data2plot))),
+             show_column_names = ifelse(ncol(data2plot)>10,F,T),
+             column_order = colnames(as.matrix(data2plot)),
+             row_names_gp = gpar(fontsize = 4),
+             width = unit(5, "inch"), 
+             height = unit(14, "inch"),
+             cluster_columns = F,
+             split=clusters,
+             column_km = 2,
+             column_title= column_title)
+
+
+draw(g,column_title='Developmental Stages',column_title_side = "bottom")
+```
+
+
+```{r}
+### save to figure
+png('figures/SigDETKgenes2.png',
+    width = pmax(25,1)/2.54,height = 60/2.54,
+    units = 'in',res = 300)
+draw(g,column_title='Developmental Stages',column_title_side = "bottom")
+dev.off()
+pdf(paste0('figures/SigDETKgenes2.pdf'),
+   width = pmax(25,1)/2.54,height = 60/2.54)
+draw(g,column_title='Developmental Stages',column_title_side = "bottom")
+dev.off()
+```
+
+```{r}
+g2 <- Heatmap(as.matrix(data2plot2), name = 'z-score', 
+             cluster_rows = FALSE,
+             clustering_method_rows='ward.D',
+             row_dend_reorder = T,
+             show_row_names = T, 
+             row_order = sort(rownames(as.matrix(data2plot2))),
+             show_column_names = ifelse(ncol(data2plot2)>10,F,T),
+             column_order = colnames(as.matrix(data2plot2)),
+             row_names_gp = gpar(fontsize = 4),
+             width = unit(7, "inch"), 
+             height = unit(14, "inch"),
+             cluster_columns = F,
+             split=clusters,
+             column_km = 1,
+             column_title= column_title)
+
+
+draw(g2,column_title='Developmental Stages',column_title_side = "bottom")
+```
+
+```{r}
+png('figures/SigDETKgenes2.png',
+    width = pmax(25,1)/2.54,height = 50/2.54,
+    units = 'in',res = 300)
+draw(g2,column_title='Developmental Stages',column_title_side = "bottom")
+dev.off()
+```
+
+
+##create heatmap for HOX genes
+```{r}
+##----->> DE genes
+targets <- row.names(hoxcounts)
+data2heatmap <- hoxcounts
+column_title <- paste0(length(targets),'HOX Genes of of Tail Regeneration on Tokay Gecko')
+data2plot <- rowmean(x = t(data2heatmap),
+                     group = metatable$label,
+                     reorder = F)
+data2plot <- t(scale(data2plot))
+data2plot <- data2plot[complete.cases(data2plot),]
+row.names(data2plot) <- targets
+hc.dist <- dist(data2plot,method = "euclidean")
+hc <- fastcluster::hclust(hc.dist,method = "ward.D")
+clusters <- cutree(hc, k = 10)
+clusters <- reorderClusters(clusters = clusters,dat = data2plot)
+
+```
+
+
+```{r}
+x <- split(names(clusters),clusters)
+x <- lapply(names(x),function(i){
+  data.frame(Clusters=i,Targets=x[[i]])
+})
+x <- do.call(rbind,x)
+colnames(x) <- c('Clusters','Targets')
+```
+
+
+
+```{r}
+g <- Heatmap(as.matrix(data2plot), name = 'logTPM', 
+             cluster_rows = FALSE,
+             clustering_method_rows='ward.D',
+             row_dend_reorder = T,
+             show_row_names = T, 
+             row_order = sort(rownames(as.matrix(data2plot))),
+             show_column_names = ifelse(ncol(data2plot)>10,F,T),
+             column_order = colnames(as.matrix(data2plot)),
+             row_names_gp = gpar(fontsize = 4),
+             width = unit(5, "inch"), 
+             height = unit(5, "inch"),
+             cluster_columns = F,
+             split=clusters,
+             column_km = 2,
+             column_title= column_title)
+
+
+draw(g,column_title='Developmental Stages',column_title_side = "bottom")
+```
+
+
+```{r}
+### save to figure
+png('figures/hoxgenes2.png',
+    width = pmax(25,1)/2.54,height = 25/2.54,
+    units = 'in',res = 300)
+draw(g,column_title='Developmental Stages',column_title_side = "bottom")
+dev.off()
+pdf(paste0('figures/hoxgenes2.pdf'),
+   width = pmax(25,1)/2.54,height = 25/2.54)
+draw(g,column_title='Developmental Stages',column_title_side = "bottom")
+dev.off()
+```
+
+###### The worked script for making the profile plot########
+
+##profileplot for hox genes family (significantly or not significantly expressed)
+
+```{r}
+library(readr)
+
+allrephox_data <- read_csv("H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/heatmap/hoxgenesgeck_TPM.csv")
+```
+
+```{r}
+
+colnames(allrephox_data)[1]  <- "genes"
+allrephox_data <- data.frame(allrephox_data)
+
+```
+
+
+```{r}
+library(reshape2)
+allrephox_long <- melt(allrephox_data, id = "genes", variable.name = "label")
+
+```
+
+
+```{r}
+library(dplyr)
+library(tidyr)
+
+#separate 'label' column into 'condition', 'timeline', 'replicate
+allrephox_long2 <- allrephox_long %>% separate(label, c('condition', 'timeline', 'replicate'))
+
+```
+
+
+```{r}
+##remove X in timeline and replicate 
+allrephox_long2$timeline<-gsub("X","",as.character(allrephox_long2$timeline))
+allrephox_long2$replicate<-gsub("X","",as.character(allrephox_long2$replicate))
+
+allrephox_long2
+```
+
+
+```{r}
+
+#calculate mean, SD, SE and 95% CI per timepoint for each group
+allrephox_stat <- allrephox_long2 %>%
+  group_by(genes, condition, timeline) %>%
+  summarise(
+    count = n(),
+    meanHOX = mean(value,na.rm=TRUE),
+    sdHOX = sd(value, na.rm=TRUE),
+    seHOX = sdHOX/sqrt(count),
+    ci95lower = meanHOX - seHOX*1.96,
+    ci95upper = meanHOX + seHOX*1.96
+  )
+
+
+```
+
+```{r}
+allrephox_stat$timeline <- factor(allrephox_stat$timeline,levels = c("0", "4", "7", "8", "16", "20", "22", "28"))
+
+library(hablar)
+allrephox2_stat <- allrephox_stat %>% 
+  convert(num(timeline))
+```
+
+
+
+```{r}
+#mean profiles in separate graphs
+allhoxplot <- ggplot(allrephox2_stat, aes(x=timeline, y=meanHOX, color=genes, alpha=0.05)) + 
+  geom_line() + 
+  geom_point() + 
+  facet_wrap(~condition, nrow = 1) +
+  labs(x="Days post-oviposition/post-autotomy", y = "Gene Expression (TPM)") + 
+   scale_y_continuous(breaks=seq(0,70,10), limits = c(0,70))+
+  scale_x_continuous(breaks=seq(0,28,2), limits = c(0,28)) +
+  #ylim(0, 75)+ 
+  theme_bw()
+
+allhoxplot
+```
+
+```{r}
+######################################################################
+##----->> save plot
+png(filename="figures/allhoxplot2.png", 
+    width = pmax(25,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+allhoxplot
+dev.off()
+```
+
+##load and filter stat for caudal hoxgenes only (hox*9-13)
+```{r}
+library(readr)
+caudhox_genes <- read_csv("H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/caudhoxgene.csv")
+caudhox_stat <- filter (allrephox_stat, genes  %in% caudhox_genes$gene)
+caudhox_stat$timeline <- factor(caudhox_stat$timeline,levels = c("0", "4", "8", "16", "20", "28"))
+
+```
+
+```{r}
+hoxgenefams <- read.csv("H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/hoxgenefams.txt", header=TRUE)
+```
+
+
+```{r}
+caudhox_stat <- filter (allrephox_stat, genes  %in% hoxgenefams$HOXD)
+caudhox_stat$timeline <- factor(caudhox_stat$timeline,levels = c("0", "4", "8", "16", "20", "28"))
+```
+
+
+```{r}
+library(hablar)
+caudhox2_stat <- caudhox_stat %>% 
+  convert(num(timeline))
+
+```
+
+```{r}
+str(caudhox2_stat$timeline)
+```
+
+
+
+```{r}
+#mean profiles caud hox in separate graphs
+caudhoxplot <- ggplot(caudhox2_stat, aes(x=timeline, y=meanHOX, color=genes)) + 
+  geom_line(linewidth=1) + 
+  geom_point(size = 2) + 
+  facet_wrap(~condition, nrow = 1) +
+  labs(x="Days post-oviposition/post-autotomy", y = "Gene Expression (TPM)") + 
+  scale_y_continuous(breaks=seq(0,55,10), limits = c(0,55))+
+  scale_x_continuous(breaks=seq(0,28,2), limits = c(0,28)) + scale_color_brewer(palette="Paired") +
+  #geom_label_repel(aes(x = timeline, y = meanHOX, label = genes))+
+  #scale_color_hue(c=50) + #ylim(0, 75)+ 
+  geom_errorbar(aes(ymin = ci95lower, ymax = ci95upper), width = 0.5)+
+  theme_bw()
+  
+  caudhoxplot
+```
+
+
+
+```{r}
+######################################################################
+##----->> save plot
+png(filename="figures/HOXC_All_eb3.png", 
+    width = pmax(25,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+caudhoxplot
+dev.off()
+```
+
+
+```{r}
+caudhoxplot2 <- ggplot(caudhox2_stat[caudhox2_stat$condition == "RT",], aes(x=timeline, y=meanHOX, color=genes)) + 
+  geom_line(linewidth=1) + 
+  geom_point(size = 2) +
+facet_wrap(~condition, nrow = 1) +
+  labs(x="Days post-autotomy", y = "Gene Expression (TPM)") + 
+  scale_y_continuous(breaks=seq(0,55,10), limits = c(0,55))+
+  scale_x_continuous(breaks=seq(0,28,2), limits = c(0,28)) + scale_color_brewer(palette="Paired") +
+  #geom_label_repel(aes(x = timeline, y = meanHOX, label = genes))+
+  #scale_color_hue(c=50) + #ylim(0, 75)+ 
+  geom_errorbar(aes(ymin = ci95lower, ymax = ci95upper), width = 0.5)+
+  theme_bw()
+
+caudhoxplot3 <- ggplot(caudhox2_stat[caudhox2_stat$condition == "ET",], aes(x=timeline, y=meanHOX, color=genes)) + 
+  geom_line(linewidth=0.5) + 
+  geom_point(size = 2) +
+facet_wrap(~condition, nrow = 1) +
+  labs(x="Days post-oviposition", y = "Gene Expression (TPM)") + 
+  scale_y_continuous(breaks=seq(0,55,10), limits = c(0,55))+
+  scale_x_continuous(breaks=seq(14,18,2), limits = c(14,18)) + scale_color_brewer(palette="Paired") +
+  #geom_label_repel(aes(x = timeline, y = meanHOX, label = genes))+
+  #scale_color_hue(c=50) + #ylim(0, 75)+ 
+  geom_errorbar(aes(ymin = ci95lower, ymax = ci95upper), width = 0.5)+
+  theme_bw()
+
+caudhoxplot_sep <- cowplot::plot_grid(caudhoxplot3, caudhoxplot2, ncol=2, rel_widths = c(0.8,2)) 
+caudhoxplot_sep
+
+```
+
+
+```{r}
+######################################################################
+##----->> save plot
+png(filename="figures/HOXD_All_sep.png", 
+    width = pmax(25,1)/2.54,height = 12/2.54, units = 'in' ,res = 500)
+caudhoxplot_sep
+dev.off()
+```
+
+
+####make profile plot for several gene families
+
+##load change gene TPM tabel structure for all genes
+
+```{r}
+geneTPM_data <- txi_genes$abundance
+geneTPM_data <- data.frame(geneTPM_data)
+geneTPM_data <- rownames_to_column(geneTPM_data, "genes")
+#colnames(geneTPM_data)[1]  <- "genes"
+geneTPM_data <- data.frame(geneTPM_data)
+
+library(reshape2)
+geneTPM_long <- melt(geneTPM_data, id = "genes", variable.name = "label")
+```
+
+
+```{r}
+library(dplyr)
+library(tidyr)
+
+#separate 'label' column into 'condition', 'timeline', 'replicate
+geneTPM_long2 <- geneTPM_long %>% separate(label, c('condition', 'timeline', 'replicate'))
+
+##remove X in timeline and replicate 
+geneTPM_long2$timeline<-gsub("X","",as.character(geneTPM_long2$timeline))
+geneTPM_long2$replicate<-gsub("X","",as.character(geneTPM_long2$replicate))
+
+head(geneTPM_long2)
+
+```
+
+
+```{r}
+
+#calculate mean, SD, SE and 95% CI per timepoint for each group
+geneTPM_stat <- geneTPM_long2 %>%
+  group_by(genes, condition, timeline) %>%
+  summarise(
+    count = n(),
+    mean = mean(value,na.rm=TRUE),
+    sd = sd(value, na.rm=TRUE),
+    se = sd/sqrt(count),
+    ci95lower = mean - se*1.96,
+    ci95upper = mean + se*1.96
+  )
+
+
+```
+
+```{r}
+##assign the levels and convert to numeric data
+geneTPM_stat$timeline <- factor(geneTPM_stat$timeline,levels = c("0", "4", "8", "16", "20", "28"))
+
+library(hablar)
+geneTPM2_stat <- geneTPM_stat %>% 
+  convert(num(timeline))
+```
+
+
+##load gene family tables
+```{r}
+library(openxlsx)
+genefam <- read.xlsx("G:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/geneforplot1.xlsx")
+
+```
+##profile plot for nerve genes
+```{r}
+##load nerve genes
+nervegene_stat <- filter (geneTPM2_stat, genes  %in% genefam$nerve)
+nervegene_stat$timeline <- factor(nervegene_stat$timeline,levels = c("0", "4", "8", "16", "20", "28"))
+```
+
+
+```{r}
+library(hablar)
+nervegene2_stat <- nervegene_stat %>% 
+  convert(num(timeline))
+str(nervegene2_stat$timeline)
+
+```
+
+
+```{r}
+#mean profiles in separate graphs
+nervegeneplot1 <- ggplot(nervegene2_stat[nervegene2_stat$condition == "RT",], aes(x=timeline, y=mean, color=genes, alpha=0.05)) + 
+ geom_line(linewidth=1) + 
+  geom_point(size = 2) +
+facet_wrap(~condition, nrow = 1) +
+  labs(x="Days post-autotomy", y = "Gene Expression (TPM)") + 
+  scale_y_continuous(breaks=seq(0,80,10), limits = c(0,80))+
+  scale_x_continuous(breaks=seq(0,28,2), limits = c(0,28)) + scale_color_brewer(palette="Paired") +
+  #geom_label_repel(aes(x = timeline, y = meanHOX, label = genes))+
+  #scale_color_hue(c=50) + #ylim(0, 75)+ 
+  geom_errorbar(aes(ymin = ci95lower, ymax = ci95upper), width = 0.5)+
+  theme_bw()
+
+nervegeneplot2 <- ggplot(nervegene2_stat[nervegene2_stat$condition == "ET",], aes(x=timeline, y=mean, color=genes, alpha=0.05)) + 
+ geom_line(linewidth=0.5) + 
+  geom_point(size = 2) +
+facet_wrap(~condition, nrow = 1) +
+  labs(x="Days post-oviposition", y = "Gene Expression (TPM)") + 
+  scale_y_continuous(breaks=seq(0,80,10), limits = c(0,80))+
+  scale_x_continuous(breaks=seq(14,18,2), limits = c(14,18)) + scale_color_brewer(palette="Paired") +
+  #geom_label_repel(aes(x = timeline, y = meanHOX, label = genes))+
+  #scale_color_hue(c=50) + #ylim(0, 75)+ 
+  geom_errorbar(aes(ymin = ci95lower, ymax = ci95upper), width = 0.5)+
+  theme_bw()
+  
+  nervegeneplot_sep <- cowplot::plot_grid(nervegeneplot2, nervegeneplot1, ncol=2, rel_widths = c(0.8,2)) 
+nervegeneplot_sep
+```
+
+```{r}
+######################################################################
+##----->> save plot
+png(filename="figures/nervesgeneplotall.png", 
+    width = pmax(20,1)/2.54,height = 10/2.54, units = 'in' ,res = 500)
+nervegeneplot_sep
+dev.off()
+```
+
+
+
+```{r}
+#mean profiles in separate graphs
+nervegeneplot <- function(gene){
+  top_y <- nervegene2_stat$ci95upper[nervegene2_stat$genes== gene]
+top_y1 <- top_y[order(top_y, decreasing = TRUE)[1:1]]
+  low_y <- nervegene2_stat$ci95lower[nervegene2_stat$genes== gene]
+low_y1 <- low_y[order(low_y, decreasing = FALSE)[1:1]]
+
+  nervegeneplot1 <- ggplot(nervegene2_stat[nervegene2_stat$condition == "RT" & nervegene2_stat$genes == gene,], aes(x=timeline, y=mean, color=genes)) + 
+ geom_line(linewidth=1.5) + 
+  geom_point(size = 2) +
+facet_wrap(~condition, nrow = 1) +
+  labs(x="Days post-autotomy", y = "Gene Expression (TPM)") + 
+  scale_y_continuous(limits = c(low_y1,top_y1 ))+
+  scale_x_continuous(breaks=seq(0,28,4), limits = c(-1,29)) + scale_color_manual(values=c("cornflowerblue")) +
+  #geom_label_repel(aes(x = timeline, y = meanHOX, label = genes))+
+  #scale_color_hue(c=50) + #ylim(0, 75)+ 
+  geom_errorbar(aes(ymin = ci95lower, ymax = ci95upper), width = 1)+
+    theme(axis.text = element_text( 
+                           size=16),legend.position="top", strip.text.x.top=element_text(face="bold",
+                           size=14), axis.title=element_text(face="bold",
+                           size=14))
+  #theme_bw(base_size =14)
+
+nervegeneplot2 <- ggplot(nervegene2_stat[nervegene2_stat$condition == "ET" & nervegene2_stat$genes == gene,], aes(x=timeline, y=mean, color=genes)) + 
+ geom_line(linewidth=1.5) + 
+  geom_point(size = 2) +
+facet_wrap(~condition, nrow = 1) +
+  labs(x="Days post-oviposition", y = "Gene Expression (TPM)") + 
+  scale_y_continuous(limits = c(low_y1,top_y1))+
+  scale_x_continuous(breaks=seq(14,18,2), limits = c(14,18)) + scale_color_manual(values=c("cornflowerblue")) +
+  #geom_label_repel(aes(x = timeline, y = meanHOX, label = genes))+
+  #scale_color_hue(c=50) + #ylim(0, 75)+ 
+  geom_errorbar(aes(ymin = ci95lower, ymax = ci95upper), width = 1)+
+  theme(axis.text = element_text( 
+                           size=16),legend.position="top", strip.text.x.top=element_text(face="bold",
+                           size=14), axis.title=element_text(face="bold",
+                           size=14))
+  #theme_bw(base_size =14)
+  
+ nervegeneplot_sep1 <- cowplot::plot_grid(nervegeneplot2, nervegeneplot1, ncol=2, rel_widths = c(0.8,2))
+
+}
+  
+```
+
+
+```{r}
+gene<-c(unique(nervegene2_stat$genes))
+nervegeneplotall <- lapply(gene, nervegeneplot)
+nervegeneplotall
+```
+
+
+
+```{r}
+######################################################################
+##----->> save plot
+png(filename="figures/nervegeneplot1.png", 
+    width = pmax(20,1)/2.54,height = 12/2.54, units = 'in' ,res = 500)
+nervegeneplotall[1]
+dev.off()
+png(filename="figures/nervegeneplot2.png", 
+    width = pmax(20,1)/2.54,height = 12/2.54, units = 'in' ,res = 500)
+nervegeneplotall[2]
+dev.off()
+png(filename="figures/nervegeneplot3.png", 
+    width = pmax(20,1)/2.54,height = 12/2.54, units = 'in' ,res = 500)
+nervegeneplotall[3]
+dev.off()
+png(filename="figures/nervegeneplot4.png", 
+    width = pmax(20,1)/2.54,height = 12/2.54, units = 'in' ,res = 500)
+nervegeneplotall[4]
+dev.off()
+png(filename="figures/nervegeneplot5.png", 
+    width = pmax(20,1)/2.54,height = 12/2.54, units = 'in' ,res = 500)
+nervegeneplotall[5]
+dev.off()
+png(filename="figures/nervegeneplot6.png", 
+    width = pmax(20,1)/2.54,height = 12/2.54, units = 'in' ,res = 500)
+nervegeneplotall[6]
+dev.off()
+
+```
+
+##profile plot for nerve genes
+```{r}
+##load nerve genes
+chondrogene_stat <- filter (geneTPM2_stat, genes  %in% genefam$cartilage)
+chondrogene_stat$timeline <- factor(chondrogene_stat$timeline,levels = c("0", "4", "8", "16", "20", "28"))
+```
+
+
+```{r}
+library(hablar)
+chondrogene2_stat <- chondrogene_stat %>% 
+  convert(num(timeline))
+str(chondrogene2_stat$timeline)
+
+```
+
+```{r}
+chondrogene2_stat[chondrogene2_stat$genes=="BMP1", "mean"]
+```
+
+```{r}
+topy <- chondrogene2_stat$ci95upper[chondrogene2_stat$genes== "BMP1"]
+topy1 <- topy[order(topy, decreasing = TRUE)[1:1]]
+topy1
+```
+
+
+```{r}
+#mean profiles in separate graphs
+chondrogeneplot1 <- ggplot(chondrogene2_stat[chondrogene2_stat$condition == "RT",], aes(x=timeline, y=mean, color=genes, alpha=0.05)) + 
+ geom_line(linewidth=1) + 
+  geom_point(size = 2) +
+facet_wrap(~condition, nrow = 1) +
+  labs(x="Days post-autotomy", y = "Gene Expression (TPM)") + 
+  scale_y_continuous(breaks=seq(0,85,10), limits = c(0,85))+
+  scale_x_continuous(breaks=seq(0,28,2), limits = c(0,28)) + scale_color_brewer(palette="Paired") +
+  #geom_label_repel(aes(x = timeline, y = meanHOX, label = genes))+
+  #scale_color_hue(c=50) + #ylim(0, 75)+ 
+  geom_errorbar(aes(ymin = ci95lower, ymax = ci95upper), width = 0.5)+
+  theme_bw()
+
+chondrogeneplot2 <- ggplot(chondrogene2_stat[chondrogene2_stat$condition == "ET",], aes(x=timeline, y=mean, color=genes, alpha=0.05)) + 
+ geom_line(linewidth=0.5) + 
+  geom_point(size = 2) +
+facet_wrap(~condition, nrow = 1) +
+  labs(x="Days post-oviposition", y = "Gene Expression (TPM)") + 
+  scale_y_continuous(breaks=seq(0,85,10), limits = c(0,85))+
+  scale_x_continuous(breaks=seq(14,18,2), limits = c(14,18)) + scale_color_brewer(palette="Paired") +
+  #geom_label_repel(aes(x = timeline, y = meanHOX, label = genes))+
+  #scale_color_hue(c=50) + #ylim(0, 75)+ 
+  geom_errorbar(aes(ymin = ci95lower, ymax = ci95upper), width = 0.5)+
+  theme_bw()
+  
+  chondrogeneplot_sep <- cowplot::plot_grid(chondrogeneplot2, chondrogeneplot1, ncol=2, rel_widths = c(0.8,2)) 
+chondrogeneplot_sep
+```
+
+
+```{r}
+######################################################################
+##----->> save plot
+png(filename="figures/chondrogeneplot_all.png", 
+    width = pmax(20,1)/2.54,height = 10/2.54, units = 'in' ,res = 500)
+chondrogeneplot_sep
+dev.off()
+```
+
+```{r}
+#mean profiles in separate graphs
+
+chondroplot <- function(gene){
+  top_y <- chondrogene2_stat$ci95upper[chondrogene2_stat$genes== gene]
+top_y1 <- top_y[order(top_y, decreasing = TRUE)[1:1]]
+  low_y <- chondrogene2_stat$ci95lower[chondrogene2_stat$genes== gene]
+low_y1 <- low_y[order(low_y, decreasing = FALSE)[1:1]]
+
+  chondrogeneplot1 <- ggplot(chondrogene2_stat[chondrogene2_stat$condition == "RT" & chondrogene2_stat$genes == gene,], aes(x=timeline, y=mean, color=genes)) + 
+ geom_line(linewidth=1.5) + 
+  geom_point(size = 2) +
+facet_wrap(~condition, nrow = 1) +
+  labs(x="Days post-autotomy", y = "Gene Expression (TPM)") + 
+  scale_y_continuous(limits = c(low_y1,top_y1 ))+
+  scale_x_continuous(breaks=seq(0,28,4), limits = c(-1,29)) + scale_color_manual(values=c("cornflowerblue")) +
+  #geom_label_repel(aes(x = timeline, y = meanHOX, label = genes))+
+  #scale_color_hue(c=50) + #ylim(0, 75)+ 
+  geom_errorbar(aes(ymin = ci95lower, ymax = ci95upper), width = 1)+
+    theme(axis.text = element_text( 
+                           size=16),legend.position="top", strip.text.x.top=element_text(face="bold",
+                           size=14), axis.title=element_text(face="bold",
+                           size=14))
+  #theme_bw(base_size =14)
+
+chondrogeneplot2 <- ggplot(chondrogene2_stat[chondrogene2_stat$condition == "ET" & chondrogene2_stat$genes == gene,], aes(x=timeline, y=mean, color=genes)) + 
+ geom_line(linewidth=1.5) + 
+  geom_point(size = 2) +
+facet_wrap(~condition, nrow = 1) +
+  labs(x="Days post-oviposition", y = "Gene Expression (TPM)") + 
+  scale_y_continuous(limits = c(low_y1,top_y1))+
+  scale_x_continuous(breaks=seq(14,18,2), limits = c(14,18)) + scale_color_manual(values=c("cornflowerblue")) +
+  #geom_label_repel(aes(x = timeline, y = meanHOX, label = genes))+
+  #scale_color_hue(c=50) + #ylim(0, 75)+ 
+  geom_errorbar(aes(ymin = ci95lower, ymax = ci95upper), width = 1)+
+  theme(axis.text = element_text( 
+                           size=16),legend.position="top", strip.text.x.top=element_text(face="bold",
+                           size=14), axis.title=element_text(face="bold",
+                           size=14))
+  #theme_bw(base_size =14)
+  
+ chondrogeneplot_sep1 <- cowplot::plot_grid(chondrogeneplot2, chondrogeneplot1, ncol=2, rel_widths = c(0.8,2))
+
+}
+ 
+  
+```
+
+
+```{r}
+gene<-c(unique(chondrogene2_stat$genes))
+chondroplotall <- lapply(gene, chondroplot)
+chondroplotall
+```
+
+
+```{r}
+chondroplotall[1]
+```
+
+
+```{r}
+######################################################################
+##----->> save plot
+png(filename="figures/chondrogeneplot1.png", 
+    width = pmax(20,1)/2.54,height = 12/2.54, units = 'in' ,res = 500)
+chondroplotall[1]
+dev.off()
+png(filename="figures/chondrogeneplot2.png", 
+    width = pmax(20,1)/2.54,height = 12/2.54, units = 'in' ,res = 500)
+chondroplotall[2]
+dev.off()
+png(filename="figures/chondrogeneplot3.png", 
+    width = pmax(20,1)/2.54,height = 12/2.54, units = 'in' ,res = 500)
+chondroplotall[3]
+dev.off()
+png(filename="figures/chondrogeneplot4.png", 
+    width = pmax(20,1)/2.54,height = 12/2.54, units = 'in' ,res = 500)
+chondroplotall[4]
+dev.off()
+png(filename="figures/chondrogeneplot5.png", 
+    width = pmax(20,1)/2.54,height = 12/2.54, units = 'in' ,res = 500)
+chondroplotall[5]
+dev.off()
+png(filename="figures/chondrogeneplot6.png", 
+    width = pmax(20,1)/2.54,height = 12/2.54, units = 'in' ,res = 500)
+chondroplotall[6]
+dev.off()
+png(filename="figures/chondrogeneplot7.png", 
+    width = pmax(20,1)/2.54,height = 12/2.54, units = 'in' ,res = 500)
+chondroplotall[7]
+dev.off()
+```
+
+##profile plot for muscle genes
+```{r}
+##load nerve genes
+musclegene_stat <- filter (geneTPM2_stat, genes  %in% genefam$muscle)
+musclegene_stat$timeline <- factor(musclegene_stat$timeline,levels = c("0", "4", "8", "16", "20", "28"))
+```
+
+
+```{r}
+library(hablar)
+musclegene2_stat <- musclegene_stat %>% 
+  convert(num(timeline))
+str(musclegene2_stat$timeline)
+
+```
+
+```{r}
+#mean profiles in separate graphs
+musclegeneplot1 <- ggplot(musclegene2_stat[musclegene2_stat$condition == "RT",], aes(x=timeline, y=mean, color=genes)) + 
+ geom_line(linewidth=1.5) + 
+  geom_point(size = 2) +
+facet_wrap(~condition, nrow = 1) +
+  labs(x="Days post-autotomy", y = "Gene Expression (TPM)") + 
+  scale_y_continuous(breaks=seq(0,110,10), limits = c(0,110))+
+  scale_x_continuous(breaks=seq(0,29,4), limits = c(-1,29)) + scale_color_brewer(palette="Paired") +
+  #geom_label_repel(aes(x = timeline, y = meanHOX, label = genes))+
+  #scale_color_hue(c=50) + #ylim(0, 75)+ 
+  geom_errorbar(aes(ymin = ci95lower, ymax = ci95upper), width = 1)+ #theme()+
+  theme_bw(base_size=14)
+
+musclegeneplot2 <- ggplot(musclegene2_stat[musclegene2_stat$condition == "ET",], aes(x=timeline, y=mean, color=genes)) + 
+ geom_line(linewidth=1.5) + 
+  geom_point(size = 2) +
+facet_wrap(~condition, nrow = 1) +
+  labs(x="Days post-oviposition", y = "Gene Expression (TPM)") + 
+  scale_y_continuous(breaks=seq(0,110,10), limits = c(0,110))+
+  scale_x_continuous(breaks=seq(14,18,2), limits = c(14,18)) + scale_color_brewer(palette="Paired") +
+  #geom_label_repel(aes(x = timeline, y = meanHOX, label = genes))+
+  #scale_color_hue(c=50) + #ylim(0, 75)+ 
+  geom_errorbar(aes(ymin = ci95lower, ymax = ci95upper), width = 1)+
+  theme_bw(base_size=14)
+  
+  musclegeneplot_sep <- cowplot::plot_grid(musclegeneplot2, musclegeneplot1, ncol=2, rel_widths = c(0.8,2)) 
+musclegeneplot_sep
+```
+
+```{r}
+######################################################################
+##----->> save plot
+png(filename="figures/musclegeneplot_all.png", 
+    width = pmax(20,1)/2.54,height = 10/2.54, units = 'in' ,res = 500)
+musclegeneplot_sep
+dev.off()
+```
+
+```{r}
+   low_y <- musclegene2_stat$ci95lower[musclegene2_stat$genes== gene]
+low_y1 <- low_y[order(low_y, decreasing = FALSE)[1:1]]
+```
+
+
+```{r}
+#mean profiles in separate graphs
+muscleplot <- function(gene){
+   top_y <- musclegene2_stat$ci95upper[musclegene2_stat$genes== gene]
+top_y1 <- top_y[order(top_y, decreasing = TRUE)[1:1]]
+   low_y <- musclegene2_stat$ci95lower[musclegene2_stat$genes== gene]
+low_y1 <- low_y[order(low_y, decreasing = FALSE)[1:1]]
+  
+  musclegeneplot1 <- ggplot(musclegene2_stat[musclegene2_stat$condition == "RT" & musclegene2_stat$genes == gene,], aes(x=timeline, y=mean, color=genes)) + 
+ geom_line(linewidth=1.5) + 
+  geom_point(size = 2) +
+facet_wrap(~condition, nrow = 1) +
+  labs(x="Days post-autotomy", y = "Gene Expression (TPM)") + 
+  scale_y_continuous(limits = c(low_y1,top_y1 ))+
+  scale_x_continuous(breaks=seq(0,29,4), limits = c(-1,29)) + scale_color_manual(values=c("cornflowerblue")) +
+  #geom_label_repel(aes(x = timeline, y = meanHOX, label = genes))+
+  #scale_color_hue(c=50) + #ylim(0, 75)+ 
+  geom_errorbar(aes(ymin = ci95lower, ymax = ci95upper), width = 1)+
+    theme(axis.text = element_text( 
+                           size=16),legend.position="top", strip.text.x.top=element_text(face="bold",
+                           size=14), axis.title=element_text(face="bold",
+                           size=14))
+  #theme_bw(base_size=14)
+
+musclegeneplot2 <- ggplot(musclegene2_stat[musclegene2_stat$condition == "ET" & musclegene2_stat$genes == gene,], aes(x=timeline, y=mean, color=genes)) + 
+ geom_line(linewidth=1.5) + 
+  geom_point(size = 2) +
+facet_wrap(~condition, nrow = 1) +
+  labs(x="Days post-oviposition", y = "Gene Expression (TPM)") + 
+  scale_y_continuous(limits = c(low_y1,top_y1 ))+
+  scale_x_continuous(breaks=seq(14,18,2), limits = c(14,18)) + scale_color_manual(values=c("cornflowerblue")) +
+  #geom_label_repel(aes(x = timeline, y = meanHOX, label = genes))+
+  #scale_color_hue(c=50) + #ylim(0, 75)+ 
+  geom_errorbar(aes(ymin = ci95lower, ymax = ci95upper), width = 1)+
+  theme(axis.text = element_text( 
+                           size=16),legend.position="top", strip.text.x.top=element_text(face="bold",
+                           size=14), axis.title=element_text(face="bold",
+                           size=14))
+  #theme_bw(base_size=14)
+  
+ musclegeneplot_sep1 <- cowplot::plot_grid(musclegeneplot2, musclegeneplot1, ncol=2, rel_widths = c(0.8,2))
+
+}
+ 
+  
+```
+
+
+```{r}
+gene<-c(unique(musclegene2_stat$genes))
+muscleplotall <- lapply(gene, muscleplot)
+muscleplotall
+```
+
+```{r}
+######################################################################
+##----->> save plot
+png(filename="figures/musclegeneplot1.png", 
+    width = pmax(20,1)/2.54,height = 12/2.54, units = 'in' ,res = 500)
+muscleplotall[1]
+dev.off()
+png(filename="figures/musclegeneplot2.png", 
+    width = pmax(20,1)/2.54,height = 12/2.54, units = 'in' ,res = 500)
+muscleplotall[2]
+dev.off()
+png(filename="figures/musclegeneplot3.png", 
+    width = pmax(20,1)/2.54,height = 12/2.54, units = 'in' ,res = 500)
+muscleplotall[3]
+dev.off()
+png(filename="figures/musclegeneplot4.png", 
+    width = pmax(20,1)/2.54,height = 12/2.54, units = 'in' ,res = 500)
+muscleplotall[4]
+dev.off()
+png(filename="figures/musclegeneplot5.png", 
+    width = pmax(20,1)/2.54,height = 12/2.54, units = 'in' ,res = 500)
+muscleplotall[5]
+dev.off()
+png(filename="figures/musclegeneplot6.png", 
+    width = pmax(20,1)/2.54,height = 12/2.54, units = 'in' ,res = 500)
+muscleplotall[6]
+dev.off()
+png(filename="figures/musclegeneplot7.png", 
+    width = pmax(20,1)/2.54,height = 12/2.54, units = 'in' ,res = 500)
+muscleplotall[7]
+dev.off()
+```
+
+##profile plot for segmentation genes
+```{r}
+##load nerve genes
+segmentgene_stat <- filter (geneTPM2_stat, genes  %in% genefam$segment)
+segmentgene_stat$timeline <- factor(segmentgene_stat$timeline,levels = c("0", "4", "8", "16", "20", "28"))
+```
+
+
+```{r}
+library(hablar)
+segmentgene2_stat <- segmentgene_stat %>% 
+  convert(num(timeline))
+str(segmentgene2_stat$timeline)
+
+```
+
+```{r}
+#mean profiles in separate graphs
+segmentgeneplot1 <- ggplot(segmentgene2_stat[segmentgene2_stat$condition == "RT",], aes(x=timeline, y=mean, color=genes, alpha=0.05)) + 
+ geom_line(linewidth=1) + 
+  geom_point(size = 2) +
+facet_wrap(~condition, nrow = 1) +
+  labs(x="Days post-autotomy", y = "Gene Expression (TPM)") + 
+  scale_y_continuous(breaks=seq(0,90,10), limits = c(0,90))+
+  scale_x_continuous(breaks=seq(0,28,2), limits = c(0,28)) + scale_color_brewer(palette="Paired") +
+  #geom_label_repel(aes(x = timeline, y = meanHOX, label = genes))+
+  #scale_color_hue(c=50) + #ylim(0, 75)+ 
+  geom_errorbar(aes(ymin = ci95lower, ymax = ci95upper), width = 0.5)+
+  theme(axis.text = element_text( 
+                           size=16),legend.position="top", strip.text.x.top=element_text(face="bold",
+                           size=14), axis.title=element_text(face="bold",
+                           size=14))
+  #theme_bw(base_size=14)
+
+segmentgeneplot2 <- ggplot(segmentgene2_stat[segmentgene2_stat$condition == "ET",], aes(x=timeline, y=mean, color=genes, alpha=0.05)) + 
+ geom_line(linewidth=0.5) + 
+  geom_point(size = 2) +
+facet_wrap(~condition, nrow = 1) +
+  labs(x="Days post-oviposition", y = "Gene Expression (TPM)") + 
+  scale_y_continuous(breaks=seq(0,90,10), limits = c(0,90))+
+  scale_x_continuous(breaks=seq(14,18,2), limits = c(14,18)) + scale_color_brewer(palette="Paired") +
+  #geom_label_repel(aes(x = timeline, y = meanHOX, label = genes))+
+  #scale_color_hue(c=50) + #ylim(0, 75)+ 
+  geom_errorbar(aes(ymin = ci95lower, ymax = ci95upper), width = 0.5)+ 
+  theme(axis.text = element_text( 
+                           size=16),legend.position="top", strip.text.x.top=element_text(face="bold",
+                           size=14), axis.title=element_text(face="bold",
+                           size=14))
+  #theme_bw(base_size=14)
+  
+  segmentgeneplot_sep <- cowplot::plot_grid(segmentgeneplot2, segmentgeneplot1, ncol=2, rel_widths = c(0.8,2)) 
+segmentgeneplot_sep
+```
+
+
+```{r}
+######################################################################
+##----->> save plot
+png(filename="figures/segmentgeneplot_all.png", 
+    width = pmax(20,1)/2.54,height = 10/2.54, units = 'in' ,res = 500)
+segmentgeneplot_sep
+dev.off()
+```
+
+
+```{r}
+#mean profiles in separate graphs
+segmentplot <- function(gene){
+   top_y <- segmentgene2_stat$ci95upper[segmentgene2_stat$genes== gene]
+top_y1 <- top_y[order(top_y, decreasing = TRUE)[1:1]]
+ low_y <- segmentgene2_stat$ci95lower[segmentgene2_stat$genes== gene]
+low_y1 <- low_y[order(low_y, decreasing = FALSE)[1:1]]
+
+  segmentgeneplot1 <- ggplot(segmentgene2_stat[segmentgene2_stat$condition == "RT" & segmentgene2_stat$genes == gene,], aes(x=timeline, y=mean, color=genes)) + 
+ geom_line(linewidth=1.5) + 
+  geom_point(size = 2) +
+facet_wrap(~condition, nrow = 1) +
+  labs(x="Days post-autotomy", y = "Gene Expression (TPM)") + 
+  scale_y_continuous(limits = c(low_y1,top_y1))+
+  scale_x_continuous(breaks=seq(0,29,4), limits = c(-1,29)) + scale_color_manual(values=c("cornflowerblue")) +
+  #geom_label_repel(aes(x = timeline, y = meanHOX, label = genes))+
+  #scale_color_hue(c=50) + #ylim(0, 75)+ 
+  geom_errorbar(aes(ymin = ci95lower, ymax = ci95upper), width = 1)+ theme(axis.text = element_text( 
+                           size=16),legend.position="top", strip.text.x.top=element_text(face="bold",
+                           size=14), axis.title=element_text(face="bold",
+                           size=14)) #+
+ # theme_bw(base_size=14)
+
+segmentgeneplot2 <- ggplot(segmentgene2_stat[segmentgene2_stat$condition == "ET" & segmentgene2_stat$genes == gene,], aes(x=timeline, y=mean, color=genes)) + 
+ geom_line(linewidth=1.5) + 
+  geom_point(size = 2) +
+facet_wrap(~condition, nrow = 1) +
+  labs(x="Days post-oviposition", y = "Gene Expression (TPM)") + 
+  scale_y_continuous(limits = c(low_y1,top_y1))+
+  scale_x_continuous(breaks=seq(14,18,2), limits = c(14,18)) + scale_color_manual(values=c("cornflowerblue")) +
+  #geom_label_repel(aes(x = timeline, y = meanHOX, label = genes))+
+  #scale_color_hue(c=50) + #ylim(0, 75)+ 
+  geom_errorbar(aes(ymin = ci95lower, ymax = ci95upper), width = 1)+ theme(axis.text = element_text( 
+                           size=16),legend.position="top", strip.text.x.top=element_text(face="bold",
+                           size=14), axis.title=element_text(face="bold",
+                           size=14)) #+
+ # theme_bw(base_size=14)
+  
+ segmentgeneplot_sep1 <- cowplot::plot_grid(segmentgeneplot2, segmentgeneplot1, ncol=2, rel_widths = c(0.6,2)  )
+
+}
+ 
+  
+```
+
+
+```{r}
+gene<-c(unique(segmentgene2_stat$genes))
+segmentplotall <- lapply(gene, segmentplot)
+segmentplotall
+```
+
+```{r}
+######################################################################
+##----->> save plot
+png(filename="figures/segmentgeneplot1.png", 
+    width = pmax(20,1)/2.54,height = 12/2.54, units = 'in' ,res = 500)
+segmentplotall[1]
+dev.off()
+png(filename="figures/segmentgeneplot2.png", 
+    width = pmax(20,1)/2.54,height = 12/2.54, units = 'in' ,res = 500)
+segmentplotall[2]
+dev.off()
+png(filename="figures/segmentgeneplot3.png", 
+    width = pmax(20,1)/2.54,height = 12/2.54, units = 'in' ,res = 500)
+segmentplotall[3]
+dev.off()
+png(filename="figures/segmentgeneplot4.png", 
+    width = pmax(20,1)/2.54,height = 12/2.54, units = 'in' ,res = 500)
+segmentplotall[4]
+dev.off()
+png(filename="figures/segmentgeneplot5.png", 
+    width = pmax(20,1)/2.54,height = 12/2.54, units = 'in' ,res = 500)
+segmentplotall[5]
+dev.off()
+png(filename="figures/segmentgeneplot6.png", 
+    width = pmax(20,1)/2.54,height = 12/2.54, units = 'in' ,res = 500)
+segmentplotall[6]
+dev.off()
+png(filename="figures/segmentgeneplot7.png", 
+    width = pmax(20,1)/2.54,height = 12/2.54, units = 'in' ,res = 500)
+segmentplotall[7]
+dev.off()
+```
+
+
+
+##profile plots for significant DE genes
+##load change gene TPM tabel structure for significant DE genes
+
+```{r}
+siggenelist <- unique(intermediate_data$DE_genes$target)
+SiggeneTPM_data <- txi_genes$abundance[siggenelist,]
+SiggeneTPM_data <- data.frame(SiggeneTPM_data)
+SiggeneTPM_data <- rownames_to_column(SiggeneTPM_data, "genes")
+#colnames(geneTPM_data)[1]  <- "genes"
+SiggeneTPM_data <- data.frame(SiggeneTPM_data)
+
+library(reshape2)
+SiggeneTPM_long <- melt(SiggeneTPM_data, id = "genes", variable.name = "label")
+
+```
+
+
+```{r}
+library(dplyr)
+library(tidyr)
+
+#separate 'label' column into 'condition', 'timeline', 'replicate
+SiggeneTPM_long2 <- SiggeneTPM_long %>% separate(label, c('condition', 'timeline', 'replicate'))
+
+##remove X in timeline and replicate 
+SiggeneTPM_long2$timeline<-gsub("X","",as.character(SiggeneTPM_long2$timeline))
+SiggeneTPM_long2$replicate<-gsub("X","",as.character(SiggeneTPM_long2$replicate))
+
+head(SiggeneTPM_long2)
+
+```
+
+
+```{r}
+
+#calculate mean, SD, SE and 95% CI per timepoint for each group
+SiggeneTPM_stat <- SiggeneTPM_long2 %>%
+  group_by(genes, condition, timeline) %>%
+  summarise(
+    count = n(),
+    mean = mean(value,na.rm=TRUE),
+    sd = sd(value, na.rm=TRUE),
+    se = sd/sqrt(count),
+    ci95lower = mean - se*1.96,
+    ci95upper = mean + se*1.96
+  )
+
+
+```
+
+```{r}
+##assign the levels and convert to numeric data
+SiggeneTPM_stat$timeline <- factor(SiggeneTPM_stat$timeline,levels = c("0", "4", "8", "16", "20", "28"))
+
+library(hablar)
+SiggeneTPM2_stat <- SiggeneTPM_stat %>% 
+  convert(num(timeline))
+```
+
+##load gene family tables
+```{r}
+library(openxlsx)
+genefam <- read.xlsx("G:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/geneforplot1.xlsx")
+
+```
+
+```{r}
+genesfam_stat <- filter (SiggeneTPM2_stat, genes  %in% genefam$robin)
+genesfam_stat$timeline <- factor(FGFfam_stat$timeline,levels = c("0", "4", "8", "16", "20", "28"))
+
+```
+
+
+```{r}
+library(hablar)
+genesfam2_stat <- genesfam_stat %>% 
+  convert(num(timeline))
+str(genesfam2_stat$timeline)
+
+```
+
+
+```{r}
+#mean profiles in separate graphs
+FGFfamplot1 <- ggplot(FGFfam2_stat[FGFfam2_stat$condition == "RT",], aes(x=timeline, y=mean, color=genes, alpha=0.05)) + 
+ geom_line(linewidth=1) + 
+  geom_point(size = 2) +
+facet_wrap(~condition, nrow = 1) +
+  labs(x="Days post-autotomy", y = "Gene Expression (TPM)") + 
+  scale_y_continuous(breaks=seq(0,40,10), limits = c(0,40))+
+  scale_x_continuous(breaks=seq(0,28,2), limits = c(0,28)) + scale_color_brewer(palette="Paired") +
+  #geom_label_repel(aes(x = timeline, y = meanHOX, label = genes))+
+  #scale_color_hue(c=50) + #ylim(0, 75)+ 
+  geom_errorbar(aes(ymin = ci95lower, ymax = ci95upper), width = 0.5)+
+  theme_bw()
+
+FGFfamplot2 <- ggplot(FGFfam2_stat[FGFfam2_stat$condition == "ET",], aes(x=timeline, y=mean, color=genes, alpha=0.05)) + 
+ geom_line(linewidth=0.5) + 
+  geom_point(size = 2) +
+facet_wrap(~condition, nrow = 1) +
+  labs(x="Days post-oviposition", y = "Gene Expression (TPM)") + 
+  scale_y_continuous(breaks=seq(0,40,10), limits = c(0,40))+
+  scale_x_continuous(breaks=seq(14,18,2), limits = c(14,18)) + scale_color_brewer(palette="Paired") +
+  #geom_label_repel(aes(x = timeline, y = meanHOX, label = genes))+
+  #scale_color_hue(c=50) + #ylim(0, 75)+ 
+  geom_errorbar(aes(ymin = ci95lower, ymax = ci95upper), width = 0.5)+
+  theme_bw()
+  
+  FGFfamplot_sep <- cowplot::plot_grid(FGFfamplot2, FGFfamplot1, ncol=2, rel_widths = c(0.8,2)) 
+FGFfamplot_sep
+```
+
+```{r}
+caudhoxplot2 <- ggplot(caudhox2_stat[caudhox2_stat$condition == "RT",], aes(x=timeline, y=meanHOX, color=genes)) + 
+  geom_line(linewidth=1) + 
+  geom_point(size = 2) +
+facet_wrap(~condition, nrow = 1) +
+  labs(x="Days post-autotomy", y = "Gene Expression (TPM)") + 
+  scale_y_continuous(breaks=seq(0,55,10), limits = c(0,55))+
+  scale_x_continuous(breaks=seq(0,28,2), limits = c(0,28)) + scale_color_brewer(palette="Paired") +
+  #geom_label_repel(aes(x = timeline, y = meanHOX, label = genes))+
+  #scale_color_hue(c=50) + #ylim(0, 75)+ 
+  geom_errorbar(aes(ymin = ci95lower, ymax = ci95upper), width = 0.5)+
+  theme_bw()
+
+caudhoxplot3 <- ggplot(caudhox2_stat[caudhox2_stat$condition == "ET",], aes(x=timeline, y=meanHOX, color=genes)) + 
+  geom_line(linewidth=0.5) + 
+  geom_point(size = 2) +
+facet_wrap(~condition, nrow = 1) +
+  labs(x="Days post-oviposition", y = "Gene Expression (TPM)") + 
+  scale_y_continuous(breaks=seq(0,55,10), limits = c(0,55))+
+  scale_x_continuous(breaks=seq(14,18,2), limits = c(14,18)) + scale_color_brewer(palette="Paired") +
+  #geom_label_repel(aes(x = timeline, y = meanHOX, label = genes))+
+  #scale_color_hue(c=50) + #ylim(0, 75)+ 
+  geom_errorbar(aes(ymin = ci95lower, ymax = ci95upper), width = 0.5)+
+  theme_bw()
+
+caudhoxplot_sep <- cowplot::plot_grid(caudhoxplot3, caudhoxplot2, ncol=2, rel_widths = c(0.8,2)) 
+caudhoxplot_sep
+
+```
+
+
+```{r}
+######################################################################
+##----->> save plot
+png(filename="G:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/figures/skingeneplot.png", 
+    width = pmax(25,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+FGFfamplot_sep
+dev.off()
+```
+
+
+
+##make UPSET Graph
+
+```{r}
+if (!require(devtools)) install.packages("devtools")
+devtools::install_github("yanlinlin82/ggvenn")
+```
+
+```{r}
+library(ggvenn)
+library(UpSetR)
+```
+
+
+```{r}
+unique(intermediate_data$DE_genes$contrast)
+```
+
+
+
+
+```{r}
+contrast2plot <- c("RT.X4-RT.X0", "RT.X8-RT.X4", "RT.X16-RT.X8", "RT.X20-RT.X16", "RT.X28-RT.X20", "RT.X20-ET.X16", "RT.X28-ET.X16")
+targets <- lapply(contrast2plot,function(i){
+  subset(intermediate_data$DE_genes,contrast==i)$target
+})
+names(targets) <- contrast2plot
+g <- plotEulerDiagram(x = targets)
+grid.arrange(g,top=textGrob('DE genes', gp=gpar(cex=1.2)))
+```
+
+```{r}
+upsetdata <- list_to_matrix(targets)
+head(upsetdata)
+```
+
+```{r}
+write.csv(upsetdata, "H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/heatmap/upsetdata2.csv", row.names = TRUE)
+write.xlsx(upsetdata, "H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/heatmap/upsetdata2.xlsx", row.names = TRUE)
+```
+
+
+
+```{r}
+m = make_comb_mat(upsetdata)
+upsetplot <- UpSet(m, 
+      set_order = c("RT.X4-RT.X0", "RT.X8-RT.X4", "RT.X16-RT.X8", "RT.X20-RT.X16", "RT.X28-RT.X20", "RT.X20-ET.X16", "RT.X28-ET.X16"), 
+      top_annotation = upset_top_annotation(m, add_numbers = FALSE , height = unit(6, "cm"),  
+    gp = gpar(fill = comb_degree(m))),
+    right_annotation = upset_right_annotation(m, add_numbers = TRUE),
+      )
+upsetplot
+```
+
+```{r}
+png(filename="H:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/heatmap/DEgenes_upsetplot2.png", 
+    width = pmax(30,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+upsetplot
+dev.off()
+```
+
+
+
+```{r}
+m4 = m[comb_degree(m) < 5]
+upsetplot2 <- UpSet(m4, set_order = c("RT.X4-RT.X0", "RT.X8-RT.X4", "RT.X16-RT.X8", "RT.X20-RT.X16", "RT.X28-RT.X20", "RT.X20-ET.X16", "RT.X28-ET.X16"),
+    top_annotation = upset_top_annotation(m4, add_numbers = TRUE , height = unit(6, "cm"), 
+    gp = gpar(fill = comb_degree(m4))),
+    right_annotation = upset_right_annotation(m4, add_numbers = TRUE))
+upsetplot2
+```
+
+
+```{r}
+png(filename="H:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/heatmap/DEgenes_upsetplot_below5_2.png", 
+    width = pmax(30,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+upsetplot2
+dev.off()
+```
+
+
+```{r}
+upsetdataRT <- subset(upsetdata, select=c(1:5))
+```
+
+
+
+```{r}
+m2 = make_comb_mat(upsetdataRT)
+upsetplot3 <- UpSet(m2, 
+      set_order = c("RT.X4-RT.X0", "RT.X8-RT.X4", "RT.X16-RT.X8", "RT.X20-RT.X16", "RT.X28-RT.X20"), 
+      top_annotation = upset_top_annotation(m2, add_numbers = TRUE , height = unit(6, "cm"),  
+    gp = gpar(fill = comb_degree(m2))),
+    right_annotation = upset_right_annotation(m2, add_numbers = TRUE),
+      )
+upsetplot3
+```
+
+
+```{r}
+png(filename="H:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/heatmap/DEgenes_upsetplotRT.png", 
+    width = pmax(30,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+upsetplot3
+dev.off()
+```
+
+```{r}
+colnames(upsetdata)
+```
+
+```{r}
+upsetdata_rename <- upsetdata
+colnames(upsetdata_rename)[colnames(upsetdata_rename) == "RT.X4-RT.X0"] = "RT0-4dpa"
+colnames(upsetdata_rename)[colnames(upsetdata_rename) == "RT.X8-RT.X4"] = "RT4-8dpa"
+colnames(upsetdata_rename)[colnames(upsetdata_rename) == "RT.X16-RT.X8"] = "RT8-16dpa"
+colnames(upsetdata_rename)[colnames(upsetdata_rename) == "RT.X20-RT.X16"] = "RT16-20dpa"
+colnames(upsetdata_rename)[colnames(upsetdata_rename) == "RT.X28-RT.X20"] = "RT20-28dpa"
+colnames(upsetdata_rename)[colnames(upsetdata_rename) == "RT.X20-ET.X16"] = "ET16dpo-RT20dpa"
+colnames(upsetdata_rename)[colnames(upsetdata_rename) == "RT.X28-ET.X16"] = "ET16dpo-RT28dpa"
+head(upsetdata_rename)
+```
+
+```{r}
+m5 = make_comb_mat(upsetdata_rename)
+m5 = m5[comb_degree(m5) < 4]
+upsetplot_rename <- UpSet(m5, 
+      set_order = c("RT0-4dpa" , "RT4-8dpa" , "RT8-16dpa" , "RT16-20dpa" , "RT20-28dpa" , "ET16dpo-RT20dpa" , "ET16dpo-RT28dpa"), 
+      top_annotation = upset_top_annotation(m5, add_numbers = TRUE , height = unit(6, "cm"),  
+    gp = gpar(fill = comb_degree(m5))),
+    right_annotation = upset_right_annotation(m5, add_numbers = TRUE),
+      )
+upsetplot_rename
+```
+
+
+```{r}
+png(filename="G:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/figures/DEgenes_upsetplot_rename3.png", 
+    width = pmax(25,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+upsetplot_rename
+dev.off()
+```
+
+
+```{r}
+upsetdata_rename <- upsetdata %>% 
+                    rename("RT_0-4dpa" = "RT.X4-RT.X0",
+                           "RT_4-8dpa" = "RT.X8-RT.X4",
+                           "RT_8-16dpa" = "RT.X16-RT.X8",
+                           "RT_16-20dpa" = "RT.X20-RT.X16",
+                           "RT_20-28dpa" = "RT.X28-RT.X20",
+                           "ET_16dpo-RT20dpa" = "RT.X20-ET.X16",
+                           "ET_16dpo-RT28dpa" = "RT.X28-ET.X16")
+
+head(upsetdata_rename)
+```
+
+```{r}
+DE_genes_stat <- intermediate_data$DE_genes
+DE_genes_stat
+```
+
+
+
+```{r}
+sig_nervegene_stat <- filter(DE_genes_stat, target  %in% genefam$nerve)
+sig_nervegene_stat
+```
+
+
+```{r}
+sig_chondroegene_stat <- filter(DE_genes_stat, target  %in% genefam$cartilage)
+sig_chondroegene_stat
+```
+
+
+```{r}
+sig_musclegene_stat <- filter(DE_genes_stat, target  %in% genefam$muscle)
+sig_musclegene_stat
+```
+
+
+```{r}
+sig_segmentgene_stat <- filter(DE_genes_stat, target  %in% genefam$segment)
+sig_segmentgene_stat
+```
+
+
+```{r}
+library(openxlsx)
+write.xlsx(sig_musclegene_stat, "figures/sig_musclegene_stat.xlsx")
+write.xlsx(sig_segmentgene_stat, "figures/sig_segmentgene_stat.xlsx")
+write.xlsx(sig_chondroegene_stat, "figures/sig_chondroegene_stat.xlsx")
+```
+

@@ -1,0 +1,1116 @@
+---
+title: "Gecko_SC_intgr_alldata"
+author: "Luthfi Nurhidayat"
+date: "2023-04-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+devtools::install_github("rx-li/EasyCellType")
+```
+
+
+
+```{r}
+BiocManager::install("singscore")
+```
+##Load Library
+
+```{r, packages, message=FALSE, warning=FALSE}
+library(Seurat)
+library(scater)
+library(scran)
+library(Matrix)
+library(hdf5r)
+library(monocle3)
+library(png)
+library(data.tree)
+library(biomaRt)
+library(patchwork)
+library(harmony)
+library(glmGamPoi)
+library(sctransform)
+library(SeuratWrappers)
+library(multtest)
+library(metap)
+library(EasyCellType)
+library(AnnotationDbi)
+library(org.Hs.eg.db)
+library(org.Mm.eg.db)
+library(scCustomize)
+library(clustermole)
+library(ggsci)
+```
+
+
+```{r}
+# load libraries
+lapply(c("dplyr","Seurat","HGNChelper"), library, character.only = T)
+
+lapply(c("ggraph","igraph","tidyverse", "data.tree"), library, character.only = T)
+
+```
+
+
+##Load Single cell count data
+
+```{r, load, warning=FALSE}
+ET_3dpo <- Read10X_h5("G:/Data Luthfi/PHD/Gecko's Sequence/SingleCell_Analysis/cellrangercount_other_genome/Ggekk_SC_ET3dpo_B/filtered_feature_bc_matrix.h5")
+ET_7dpo <- Read10X_h5("G:/Data Luthfi/PHD/Gecko's Sequence/SingleCell_Analysis/cellrangercount_other_genome/Ggekk_SC_ET7dpo_B/filtered_feature_bc_matrix.h5")
+RT_16dpa <- Read10X_h5("G:/Data Luthfi/PHD/Gecko's Sequence/SingleCell_Analysis/cellrangercount_other_genome/Ggekk_SC_RT16dpo_B/filtered_feature_bc_matrix.h5")
+RT_20dpa <- Read10X_h5("G:/Data Luthfi/PHD/Gecko's Sequence/SingleCell_Analysis/cellrangercount_other_genome/Ggekk_SC_RT20dpo_B/filtered_feature_bc_matrix.h5")
+RT_24dpa <- Read10X_h5("G:/Data Luthfi/PHD/Gecko's Sequence/SingleCell_Analysis/cellrangercount_other_genome/Ggekk_SC_RT24dpo_B/filtered_feature_bc_matrix.h5")
+RT_28dpa <- Read10X_h5("G:/Data Luthfi/PHD/Gecko's Sequence/SingleCell_Analysis/cellrangercount_other_genome/Ggekk_SC_RT28dpo_B/filtered_feature_bc_matrix.h5")
+
+```
+
+##Create Seurat object and merge them
+
+```{r, create_seurat}
+sdata.ET_3dpo <- CreateSeuratObject(ET_3dpo, project = "ET_3dpo", min.cells = 3, min.features = 100)
+sdata.ET_7dpo <- CreateSeuratObject(ET_7dpo, project = "ET_7dpo", min.cells = 3, min.features = 100)
+sdata.RT_16dpa <- CreateSeuratObject(RT_16dpa, project = "RT_16dpa", min.cells = 3, min.features = 100)
+sdata.RT_20dpa <- CreateSeuratObject(RT_20dpa, project = "RT_20dpa", min.cells = 3, min.features = 100)
+sdata.RT_24dpa <- CreateSeuratObject(RT_24dpa, project = "RT_24dpa", min.cells = 3, min.features = 100)
+sdata.RT_28dpa <- CreateSeuratObject(RT_28dpa, project = "RT_28dpa", min.cells = 3, min.features = 100)
+
+
+```
+
+
+```{r}
+
+# Merge into one single Seurat object. 
+# Prefix cell ids with dataset name (`all.cell.ids`) just in case you have 
+# overlapping barcodes between the datasets.
+alldata <- merge(sdata.ET_3dpo, c(sdata.ET_7dpo, sdata.RT_16dpa, sdata.RT_20dpa, sdata.RT_24dpa, sdata.RT_28dpa), add.cell.ids=c("ET_3dpo","ET_7dpo","RT_16dpa","RT_20dpa","RT_24dpa","RT_28dpa"))
+alldata
+```
+
+##Saver raw data rds
+```{r}
+saveRDS(alldata, file = "alldata_raw.rds")
+```
+
+
+####Quality Control
+##assign mithochondrial and ribosomal genes based on Sphaerodactylus townsendi genome
+```{r}
+
+mito_gene_list <- c("ATPSCKMT", "ATP5MC1", "ATP5MK", "ATP5F1C", "ATP5PB", "ATP5PD", "ATP5PF",
+                    "ATP5MG", "ATP5F1A", "ATP5ME", "ATP5F1D", "ATP5F1E", "ATP5PO", "ATP5MF",
+                    "ATP5F1B", "ATP5MC2", "ATP5MC3", "LOC125435581", "LOC125435409",
+                    "LOC125434148", "ATP5PF", "LOC125434155", "LOC125434155", "LOC125434164", 
+                    "LOC125441111", "LOC125441741", "LOC125432308", "LOC125433948",
+                    "LOC125443113", "LOC125439330", "LOC125439271", "LOC125436232", "AIMP1",
+                    "EPRS1", "AARS2", "LARS2", "WARS2", "KARS1", "FARS2"
+)
+ribo_gene_list <- c("RPS24", "LOC125429185", "RPS20", "MRPL55", "MRPS34", "RPL9", "MRPL39", 
+                    "RPS6KC1", "RPS6KL1", "RPS6KB2", "MRPS17", "MRPS2", "MRPS21", "RPS6KA1",
+                    "MRPL37", "RPS14", "LOC125431004", "RPS9", "MRPL17", "RPL28"
+)
+
+```
+
+##Add mithocondrial and ribosimal proportion percentage
+
+```{r}
+alldata <- Add_Mito_Ribo_Seurat(seurat_object = alldata, species = "other",
+                                           mito_features = mito_gene_list, 
+                                           ribo_pattern = "^RP[SL]")
+```
+
+
+```{r}
+QC_figure1a <- VlnPlot(alldata, features = "nFeature_RNA", y.max = 3000)
+QC_figure1b <- VlnPlot(alldata, features =  "nCount_RNA", y.max = 5000)
+QC_figure1c <- VlnPlot(alldata, features = "percent_mito", y.max = 7)
+QC_figure1d <- VlnPlot(alldata, features = "percent_ribo", y.max = 50)
+
+QC_figure <- (QC_figure1a|QC_figure1b)/(QC_figure1c|QC_figure1d)
+QC_figure
+```
+
+
+
+```{r}
+QC_figure2a <-  FeatureScatter(alldata, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+QC_figure2b <-  FeatureScatter(alldata, feature1 = "nCount_RNA", feature2 = "percent_mito")
+QC_figure2c <-  FeatureScatter(alldata, feature1 = "nCount_RNA", feature2 = "percent_ribo")
+
+QC_figure2 <- QC_figure2a + QC_figure2b +QC_figure2c
+QC_figure2
+```
+
+
+##save QC figures
+```{r}
+png(filename="figures/QC_vinplot1.png", 
+    width = pmax(40,1)/2.54,height = 30/2.54, units = 'in' ,res = 500)
+QC_figure
+dev.off()
+
+png(filename="figures/QC_scatter.png", 
+    width = pmax(50,1)/2.54,height = 15/2.54, units = 'in' ,res = 500)
+QC_figure2
+dev.off()
+
+```
+```{r}
+table(Idents(alldata))
+```
+
+###Save rds file in QC step
+```{r}
+saveRDS(alldata, file = "alldata_QC.rds")
+```
+
+
+
+##Filter cells
+```{r}
+alldata.filt <- subset(alldata, subset = nFeature_RNA > 100 & percent_mito < 5)
+table(Idents(alldata.filt))
+```
+
+```{r}
+QC_figure3a <- VlnPlot(alldata.filt, features = "nFeature_RNA", y.max = 3000)
+QC_figure3b <- VlnPlot(alldata.filt, features =  "nCount_RNA", y.max = 5000)
+QC_figure3c <- VlnPlot(alldata.filt, features = "percent_mito", y.max = 6)
+QC_figure3d <- VlnPlot(alldata.filt, features = "percent_ribo", y.max = 50)
+
+QC_figure3 <- (QC_figure3a|QC_figure3b)/(QC_figure3c|QC_figure3d)
+QC_figure3
+```
+
+
+```{r}
+QC_figure4a <-  FeatureScatter(alldata.filt, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+QC_figure4b <-  FeatureScatter(alldata.filt, feature1 = "nCount_RNA", feature2 = "percent_mito")
+QC_figure4c <-  FeatureScatter(alldata.filt, feature1 = "nCount_RNA", feature2 = "percent_ribo")
+
+QC_figure4 <- QC_figure4a + QC_figure4b +QC_figure4c
+QC_figure4
+```
+
+##save QC figures
+```{r}
+png(filename="figures/QC_vinplot_filt.png", 
+    width = pmax(40,1)/2.54,height = 30/2.54, units = 'in' ,res = 500)
+QC_figure3
+dev.off()
+
+png(filename="figures/QC_scatter_filt.png", 
+    width = pmax(50,1)/2.54,height = 15/2.54, units = 'in' ,res = 500)
+QC_figure4
+dev.off()
+```
+
+
+## Assign the cell cycle gene
+```{r}
+s.genes <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+```
+
+```{r}
+alldata.filt <- CellCycleScoring(object =alldata.filt, s.features = s.genes, g2m.features = g2m.genes, ctrl = 5, set.ident = TRUE)
+```
+
+```{r}
+QC_Cellcycle <- VlnPlot(alldata.filt, features = c("S.Score","G2M.Score"), group.by= "orig.ident")
+QC_Cellcycle
+```
+
+```{r}
+png(filename="figures/QC_Cellcycle.png", 
+    width = pmax(30,1)/2.54,height = 15/2.54, units = 'in' ,res = 500)
+QC_Cellcycle
+dev.off()
+```
+```{r}
+alldata.filt$CC.Difference <- alldata.filt$S.Score - alldata.filt$G2M.Score
+```
+
+
+```{r}
+saveRDS(alldata.filt, file = "alldata_filt_cycle.rds")
+```
+
+
+
+## Data processing by seurat using Integration technique.
+
+```{r}
+alldata.list <- SplitObject(alldata.filt, split.by = "orig.ident")
+alldata.list <- lapply(X = alldata.list, FUN = function(x) {
+    x <- NormalizeData(x, verbose = FALSE)
+    x <- FindVariableFeatures(x, selection.method = "vst", verbose = FALSE)
+})
+```
+
+
+```{r}
+features <- SelectIntegrationFeatures(object.list = alldata.list)
+alldata.list <- lapply(X = alldata.list, FUN = function(x) {
+    x <- ScaleData(x, features = features, 
+                   vars.to.regress = c("CC.Difference", "percent_mito"), 
+                   verbose = FALSE)
+    x <- RunPCA(x, features = features, verbose = FALSE)
+})
+```
+
+
+```{r}
+anchors <- FindIntegrationAnchors(object.list = alldata.list, anchor.features = features, reduction = "rpca", reference = c(1, 3), k.anchor = 5, dims = 1:40)
+alldata.integrated <- IntegrateData(anchorset = anchors, dims = 1:40)
+
+```
+
+```{r}
+alldata.filt
+```
+
+
+##Scale data and run PCA
+
+```{r}
+alldata.integrated <- ScaleData(alldata.integrated, 
+                                vars.to.regress = c("CC.Difference","percent_mito"), 
+                                verbose = FALSE)
+
+```
+
+```{r}
+alldata.integrated <- RunPCA(alldata.integrated, npcs = 40, verbose = FALSE)
+ElbowPlot(alldata.integrated, ndims = 40, reduction = 'pca')
+```
+
+
+```{r}
+DimHeatmap(alldata.integrated, dims = 1:20, cells = 500, balanced = TRUE)
+```
+
+
+
+## Clustering cells
+
+```{r}
+#alldata.integrated <- FindNeighbors(alldata.integrated, dims = 1:50)
+#alldata.integrated <- FindClusters(alldata.integrated, resolution = 0.6)
+
+alldata.integrated <- FindNeighbors(alldata.integrated, dims = 1:40)
+alldata.integrated <- FindClusters(alldata.integrated, resolution = 0.6)
+
+```
+
+
+## Run non-linear dimensional reduction (UMAP/tSNE)
+
+```{r}
+alldata.integrated <- RunUMAP(alldata.integrated, dims = 1:40)
+alldata.integrated <- RunTSNE(alldata.integrated, dims = 1:40)
+```
+
+```{r}
+fig_UMAP_cluster <- DimPlot(alldata.integrated, label = TRUE, reduction = "umap")
+fig_UMAP_cluster + labs(title = "Cell Clusters")
+```
+
+
+```{r}
+fig_UMAP_dev <- DimPlot(alldata.integrated, reduction = "umap", label = TRUE, repel = TRUE, group.by = "orig.ident")
+fig_UMAP_dev + labs(title = "developmental stages")
+```
+
+
+```{r}
+fig_UMAP_cluster_split <- DimPlot(alldata.integrated, reduction = "umap", split.by = "orig.ident" )
+#fig_alldata2 <-DimPlot(alldata, reduction = "tsne")
+fig_UMAP_cluster_split + labs(title = "Cell types across developmental stages")
+```
+
+
+```{r}
+png(filename="figures/fig_UMAP_cluster.png", 
+    width = pmax(30,1)/2.54,height = 25/2.54, units = 'in' ,res = 500)
+fig_UMAP_cluster + labs(title = "Cell Clusters")
+dev.off()
+
+png(filename="figures/fig_UMAP_devstages.png", 
+    width = pmax(30,1)/2.54,height = 25/2.54, units = 'in' ,res = 500)
+fig_UMAP_dev + labs(title = "developmental stages")
+dev.off()
+
+```
+
+
+##find marker genes (diffenetially expressed genes accross clusters)
+
+```{r}
+alldata.markers <- FindAllMarkers(alldata.integrated, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+alldata.markers %>%
+    group_by(cluster) %>%
+    slice_max(n = 10, order_by = avg_log2FC)
+```
+
+## unsupervised cell type assignment using easycelltype
+
+##prepare short list version of marker genes
+```{r}
+short.markers <- data.frame(gene=alldata.markers$gene, cluster=alldata.markers$cluster, 
+                      log2fc=alldata.markers$avg_log2FC)
+short.markers
+```
+
+##marker genes mapping to human genome annotation
+```{r}
+alldata.markers$entrezid <- mapIds(org.Hs.eg.db,
+                           keys=alldata.markers$gene, #Column containing Ensembl gene ids
+                           column="ENTREZID",
+                           keytype="SYMBOL",
+                           multiVals="first")
+alldata.markers1 <- na.omit(alldata.markers)
+```
+
+```{r}
+library(dplyr)
+alldata.markers_sort <- data.frame(gene=alldata.markers1$entrezid, cluster=alldata.markers1$cluster, 
+                      score=alldata.markers1$avg_log2FC) %>% 
+  group_by(cluster) %>% 
+  mutate(rank = rank(score),  ties.method = "random") %>% 
+  arrange(desc(rank)) 
+input.d <- as.data.frame(alldata.markers_sort[, 1:3])
+```
+
+
+## cell type assignment
+
+```{r}
+#data(cellmarker_tissue)
+data(clustermole_tissue)
+#data(panglao_tissue)
+```
+
+
+```{r}
+annot.GSEA <- easyct(input.d, db="clustermole", species="Human", 
+                    tissue=c("Immune system", "Vasculature", "Skeletal muscle",
+                      "Connective tissue", "Skin", "Embryo", "Brain", "Bone"), p_cut=0.3,
+                    test="GSEA", scoretype = "pos")
+```
+
+##visualize the results
+```{r}
+alldata.easy <- plot_dot(test="GSEA", annot.GSEA)
+alldata.easy
+```
+##save cell prediction figure
+```{r}
+png(filename="figures/easycelltype.results.png", 
+    width = pmax(35,1)/2.54,height = 20/2.54, units = 'in' ,res = 500)
+alldata.easy
+dev.off()
+```
+
+```{r}
+write_csv(short.markers, "tables/intgr.short.markers061123.csv"  )
+```
+
+
+```{r}
+alldata.markers %>%
+    group_by(cluster) %>%
+    top_n(n = 10, wt = avg_log2FC) -> top10
+alldata.markers.heatmap <- DoHeatmap(alldata.integrated, 
+                                     features = top10$gene, 
+                                     #group.by = "celltypes",
+                                     size = 5.5,
+                                     angle = 90
+                                     ) + NoLegend()
+alldata.markers.heatmap
+```
+
+```{r}
+##markers into xlsx files
+library(openxlsx)
+write.xlsx(alldata.markers, "tables/intgr.alldata.markers2061123.xlsx"  )
+
+```
+
+```{r}
+markers <- unique(top10$gene) 
+markers
+```
+
+
+
+```{r}
+alldata.markers.dotplot <- DotPlot(alldata.integrated, 
+                                   features = markers, 
+                                   #group.by = "customclassif" 
+                                   ) + RotatedAxis()
+alldata.markers.dotplot 
+```
+
+
+```{r}
+png(filename="figures/intgr.alldata.markers_clusters.png", 
+    width = pmax(35,1)/2.54,height = 50/2.54, units = 'in' ,res = 500)
+alldata.markers.heatmap
+dev.off()
+
+png(filename="figures/alldata.markers.dotplot_clusters.png", 
+    width = pmax(100,1)/2.54,height = 20/2.54, units = 'in' ,res = 500)
+alldata.markers.dotplot
+dev.off()
+```
+
+
+####clustermole cell type check
+```{r}
+avg_exp_alldata <- AverageExpression(alldata.integrated)
+```
+
+```{r}
+avg_exp_alldata <- as.matrix(avg_exp_alldata$RNA)
+avg_exp_alldata <- log1p(avg_exp_alldata)
+```
+
+```{r}
+avg_exp_alldata[1:5, 1:5]
+```
+
+```{r}
+enrich_tbl_alldata <- clustermole_enrichment(expr_mat = avg_exp_alldata, species = "hs")
+```
+
+```{r}
+write.xlsx (enrich_tbl_alldata, "tables/enrich_tbl_alldata_clustermole.xlsx"  )
+```
+
+
+#Cell type assignment with SCtype
+
+```{r}
+# load gene set preparation function
+source("https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/R/gene_sets_prepare.R")
+# load cell type annotation function
+source("https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/R/sctype_score_.R")
+
+```
+
+
+##In addition, provide a tissue type your data belongs to:
+```{r}
+
+library(openxlsx)
+# DB file
+#db_ = "https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/ScTypeDB_full.xlsx";
+db_ = "G:/Data Luthfi/PHD/Gecko's Sequence/SingleCell_Analysis/ScTypeDB_geckoadded2.xlsx"
+tissue = "RegTail" # e.g. Immune system,Pancreas,Liver,Eye,Kidney,Brain,Lung,Adrenal,Heart,Intestine,Muscle,Placenta,Spleen,Stomach,Thymus 
+#tissue2= "EmbTail"
+
+# prepare gene sets
+gs_list = gene_sets_prepare(db_, tissue)
+#gs_list2 = gene_sets_prepare(db_, tissue2)
+
+```
+
+
+##assign cell types to each cluster
+
+
+```{r}
+# get cell-type by cell matrix
+es.max = sctype_score(scRNAseqData = alldata.integrated[["integrated"]]@scale.data, scaled = TRUE, 
+                      gs = gs_list$gs_positive, gs2 = NULL) 
+
+# NOTE: scRNAseqData parameter should correspond to your input scRNA-seq matrix. 
+# In case Seurat is used, it is either pbmc[["RNA"]]@scale.data (default), pbmc[["SCT"]]@scale.data, in case sctransform is used for normalization,
+# or pbmc[["integrated"]]@scale.data, in case a joint analysis of multiple single-cell datasets is performed.
+
+# merge by cluster
+cL_resutls = do.call("rbind", lapply(unique(alldata.integrated@meta.data$seurat_clusters), function(cl){
+    es.max.cl = sort(rowSums(es.max[ ,rownames(alldata.integrated@meta.data[alldata.integrated@meta.data$seurat_clusters==cl, ])]), decreasing = !0)
+    head(data.frame(cluster = cl, type = names(es.max.cl), scores = es.max.cl, ncells = sum(alldata.integrated@meta.data$seurat_clusters==cl)), 10)
+}))
+sctype_scores = cL_resutls %>% group_by(cluster) %>% top_n(n = 1, wt = scores)  
+
+# set low-confident (low ScType score) clusters to "unknown"
+sctype_scores$type[as.numeric(as.character(sctype_scores$scores)) < sctype_scores$ncells/4] = "Unknown"
+print(sctype_scores[,1:3])
+```
+
+
+```{r}
+##markers into tsv files
+
+write.xlsx (cL_resutls, "tables/celltypesresults_06112023.xlsx"  )
+write.xlsx (sctype_scores, "tables/celltypesscore_06112023.xlsx"  )
+write_tsv(sctype_scores, "tables/celltypesscore_06112023.tsv")
+
+```
+
+##overlay the identified cell types on UMAP plot:
+
+```{r}
+alldata.integrated@meta.data$celltypes = ""
+for(j in unique(sctype_scores$cluster)){
+  cl_type = sctype_scores[sctype_scores$cluster==j,]; 
+  alldata.integrated@meta.data$celltypes[alldata.integrated@meta.data$seurat_clusters == j] = as.character(cl_type$type[1])
+}
+
+fig_UMAP_celltypes <- DimPlot(alldata.integrated, reduction = "umap", label = TRUE, repel = TRUE, group.by = 'celltypes')        
+#TSNE16dpa <- DimPlot(alldatadpa, reduction = "tsne", label = TRUE, repel = TRUE, group.by = 'customclassif') 
+fig_UMAP_celltypes
+
+```
+
+```{r}
+##save figure
+png(filename="figures/fig_UMAP_celltypes.png", 
+     width = pmax(30,1)/2.54,height = 25/2.54, units = 'in' ,res = 500)
+fig_UMAP_celltypes
+dev.off()
+```
+
+
+##After load cell type after manual curation
+
+```{r}
+sctype_scoresfix <- read_delim("tables/celltypesscore_06112023fix.tsv", delim = "\t", escape_double = FALSE, trim_ws = TRUE)
+```
+
+##overlay the after curration cell types on UMAP plot:
+
+```{r}
+alldata.integrated@meta.data$celltypes = ""
+for(j in unique(sctype_scoresfix$cluster)){
+  cl_type = sctype_scoresfix[sctype_scoresfix$cluster==j,]; 
+  alldata.integrated@meta.data$celltypes[alldata.integrated@meta.data$seurat_clusters == j] = as.character(cl_type$type[1])
+}
+
+fig_UMAP_celltypes <- DimPlot(alldata.integrated, reduction = "umap", label = TRUE, repel = TRUE, group.by = 'celltypes')        
+
+fig_UMAP_celltypes + labs(title = "Cell types")
+
+```
+
+```{r}
+fig_UMAP_stagesfix <- DimPlot(alldata.integrated, reduction = "umap", label = TRUE, repel = TRUE, group.by = 'orig.ident')        
+
+fig_UMAP_stagesfix + labs(title = "Developmental stages")
+```
+
+
+```{r}
+fig_UMAP_celltypesdev <- DimPlot(alldata.integrated, reduction = "umap", label = TRUE, repel = TRUE, group.by = 'celltypes', split.by = "orig.ident")
+fig_UMAP_celltypesdev + labs(title = "Cell Clusters across developmental stages")
+```
+
+
+```{r}
+png(filename="figures/fig_UMAP_celltypesfix.png", 
+    width = pmax(20,1)/2.54,height = 13/2.54, units = 'in' ,res = 500)
+plot(fig_UMAP_celltypes + labs(title = "Cell types"))
+dev.off()
+
+png(filename="figures/fig_UMAP_stagesfix.png", 
+    width = pmax(20,1)/2.54,height = 15/2.54, units = 'in' ,res = 500)
+plot(fig_UMAP_stagesfix + labs(title = "Developmental stages"))
+dev.off()
+
+png(filename="figures/fig_UMAP_celltypesdev.png", 
+    width = pmax(90,1)/2.54,height = 25/2.54, units = 'in' ,res = 500)
+plot(fig_UMAP_celltypesdev + labs(title = "Cell Clusters across developmental stages"))
+dev.off()
+```
+
+```{r}
+fig_TSNE_celltypes <- DimPlot(alldata.integrated, reduction = "tsne", label = TRUE, repel = TRUE, group.by = 'celltypes')        
+fig_TSNE_celltypes + labs(title = "Cell types")
+
+```
+```{r}
+fig_TSNE_devstages <- DimPlot(alldata.integrated, reduction = "tsne", label = TRUE, repel = TRUE, group.by = 'orig.ident')        
+fig_TSNE_devstages + labs(title = "Developmental stages")
+```
+
+
+```{r}
+fig_TSNE_celltypesdev <- DimPlot(alldata.integrated, reduction = "tsne", label = TRUE, repel = TRUE, group.by = 'celltypes', split.by = "orig.ident")
+fig_TSNE_celltypesdev + labs(title = "Cell Clusters across developmental stages")
+```
+
+
+
+```{r}
+png(filename="figures/fig_TSNE_celltypesfix.png", 
+    width = pmax(20,1)/2.54,height = 13/2.54, units = 'in' ,res = 500)
+plot(fig_TSNE_celltypes + labs(title = "Cell types"))
+dev.off()
+
+png(filename="figures/fig_TSNE_stagesfix.png", 
+    width = pmax(20,1)/2.54,height = 15/2.54, units = 'in' ,res = 500)
+plot(fig_TSNE_devstages + labs(title = "Developmental stages"))
+dev.off()
+
+png(filename="figures/fig_TSNE_celltypesdev.png", 
+    width = pmax(90,1)/2.54,height = 25/2.54, units = 'in' ,res = 500)
+plot(fig_TSNE_celltypesdev + labs(title = "Cell Clusters across developmental stages"))
+dev.off()
+```
+
+
+
+
+```{r}
+alldata.markers.heatmap2 <- DoHeatmap(alldata.integrated, 
+                                     features = top10$gene, 
+                                     group.by = "celltypes",
+                                     size = 5.5,
+                                     angle = 90
+                                     ) + NoLegend()
+alldata.markers.heatmap2
+```
+
+
+```{r}
+alldata.markers.dotplot2 <- DotPlot(alldata.integrated, 
+                                   features = markers, 
+                                   group.by = "celltypes" 
+                                   ) + RotatedAxis()
+alldata.markers.dotplot2 
+```
+
+
+```{r}
+png(filename="figures/intgr.alldata.markers_celltypes.png", 
+    width = pmax(35,1)/2.54,height = 50/2.54, units = 'in' ,res = 500)
+alldata.markers.heatmap2
+dev.off()
+
+png(filename="figures/alldata.markers.dotplot2_celltypes.png", 
+    width = pmax(110,1)/2.54,height = 20/2.54, units = 'in' ,res = 500)
+alldata.markers.dotplot2
+dev.off()
+```
+
+
+```{r}
+alldata.markers %>%
+    group_by(cluster) %>%
+    top_n(n = 6, wt = avg_log2FC) -> top6
+markers6 <- unique(top6$gene) 
+
+alldata.markers.dotplot6 <- DotPlot(alldata.integrated, 
+                                   features = markers6, 
+                                   group.by = "celltypes" 
+                                   ) + RotatedAxis()
+alldata.markers.dotplot6
+
+```
+
+
+```{r}
+png(filename="figures/alldata.markers.dotplot6_celltypes.png", 
+    width = pmax(80,1)/2.54,height = 13/2.54, units = 'in' ,res = 500)
+alldata.markers.dotplot6
+dev.off()
+```
+
+
+
+##more graphic with bubble
+```{r}
+# prepare edges
+cL_resutls=cL_resutls[order(cL_resutls$cluster),]; edges = cL_resutls; edges$type = paste0(edges$type,"_",edges$cluster); edges$cluster = paste0("cluster ", edges$cluster); edges = edges[,c("cluster", "type")]; colnames(edges) = c("from", "to"); rownames(edges) <- NULL
+
+# prepare nodes
+nodes_lvl1 = sctype_scores[,c("cluster", "ncells")]; nodes_lvl1$cluster = paste0("cluster ", nodes_lvl1$cluster); nodes_lvl1$Colour = "#f1f1ef"; nodes_lvl1$ord = 1; nodes_lvl1$realname = nodes_lvl1$cluster; nodes_lvl1 = as.data.frame(nodes_lvl1); nodes_lvl2 = c(); 
+ccolss= c("#5f75ae","#92bbb8","#64a841","#e5486e","#de8e06","#eccf5a","#b5aa0f","#e4b680","#7ba39d","#b15928","#ffff99", "#6a3d9a","#cab2d6","#ff7f00","#fdbf6f","#e31a1c","#fb9a99","#33a02c","#b2df8a","#1f78b4","#a6cee3")
+for (i in 1:length(unique(cL_resutls$cluster))){
+  dt_tmp = cL_resutls[cL_resutls$cluster == unique(cL_resutls$cluster)[i], ]; nodes_lvl2 = rbind(nodes_lvl2, data.frame(cluster = paste0(dt_tmp$type,"_",dt_tmp$cluster), ncells = dt_tmp$scores, Colour = ccolss[i], ord = 2, realname = dt_tmp$type))
+}
+nodes = rbind(nodes_lvl1, nodes_lvl2); nodes$ncells[nodes$ncells<1] = 1;
+files_db = openxlsx::read.xlsx(db_)[,c("cellName","shortName")]; files_db = unique(files_db); nodes = merge(nodes, files_db, all.x = T, all.y = F, by.x = "realname", by.y = "cellName", sort = F)
+nodes$shortName[is.na(nodes$shortName)] = nodes$realname[is.na(nodes$shortName)]; nodes = nodes[,c("cluster", "ncells", "Colour", "ord", "realname")]
+
+mygraph <- graph_from_data_frame(edges, vertices=unique(nodes)) 
+
+# Make the graph
+gggr<- ggraph(mygraph, layout = 'circlepack', weight=I(ncells)) + 
+  geom_node_circle(aes(filter=ord==1,fill=I("#F5F5F5"), colour=I("#D3D3D3")), alpha=0.9) + geom_node_circle(aes(filter=ord==2,fill=I(Colour), colour=I("#D3D3D3")), alpha=0.9) +
+  theme_void() + geom_node_text(aes(filter=ord==2, label=realname, colour=I("#ffffff"), fill="white", repel = !1, parse = T, size = I(log(ncells,25)*1.5)))+ geom_node_label(aes(filter=ord==1,  label=realname, colour=I("#000000"), size = I(3), fill="white", parse = T), repel = !0, segment.linetype="dotted")
+  
+bubintalldata <- gridExtra::grid.arrange(DimPlot(alldata.integrated, reduction = "umap", label = TRUE, repel = TRUE, cols = ccolss), gggr)
+bubintalldata
+
+```
+
+
+```{r}
+bubintalldata2 <- gridExtra::grid.arrange(DimPlot(alldata.integrated, reduction = "umap", split.by = "orig.ident", label = TRUE, repel = TRUE, cols = ccolss), gggr)
+bubintalldata2
+```
+
+```{r}
+png(filename="figures/Intg_buballdata.png", 
+    width = pmax(20,1)/2.54,height = 40/2.54, units = 'in' ,res = 500)
+plot(bubintalldata)
+dev.off()
+
+png(filename="figures/Intg_buballdata2.png", 
+    width = pmax(60,1)/2.54,height = 35/2.54, units = 'in' ,res = 500)
+plot(bubintalldata2)
+dev.off()
+```
+
+
+
+```{r}
+cluster2to4.markers <- FindMarkers(alldata.integrated, ident.1 = 2, ident.2 = 4)
+
+```
+
+```{r}
+head(cluster2to4.markers, n = 15)
+```
+
+```{r}
+cluster12to2.markers <- FindMarkers(alldata.integrated, ident.1 = 12, ident.2 = 2)
+head(cluster12to2.markers, n = 10)
+```
+
+```{r}
+fibro16.markers <- FindMarkers(alldata.integrated, ident.1 = 10, ident.2 = c(0,4,8))
+fibro20.markers <- FindMarkers(alldata.integrated, ident.1 = 8, ident.2 = c(0,4,10))
+fibro24.markers <- FindMarkers(alldata.integrated, ident.1 = 4, ident.2 = c(0,8,10))
+fibro28.markers <- FindMarkers(alldata.integrated, ident.1 = 0, ident.2 = c(4,8,10))
+```
+```{r}
+head(fibro16.markers, n = 20)
+```
+```{r}
+head(fibro20.markers, n = 20)
+```
+```{r}
+head(fibro24.markers, n = 20)
+```
+
+
+```{r}
+head(fibro28.markers, n = 20)
+
+```
+
+
+```{r}
+GeneXvin <- VlnPlot(alldata.integrated, features = c("HES4", "COL2A1", "SHH","SPP1","CDH2","MYOD1","MMP2","HOXA7","FTH1"), group.by = "celltypes")
+GeneXvin
+```
+
+```{r}
+GeneX1 <- FeaturePlot(alldata.integrated, features = c("HOXC13", "COL2A1", "SHH","SPP1","CDH2","MYOD1","MMP2","COL1A2","TWIST1", "LFNG"), ncol = 3)
+
+GeneX1
+```
+
+
+```{r}
+GeneX2 <- FeaturePlot(alldata.integrated, features = c("PAX3","PAX7","MYOG", "MYOD1", "CKM","LOC125445005","LOC125429055","TNNI2","TNNT2","HOXC13","CDH2"), ncol = 3)
+
+GeneX2
+```
+
+```{r}
+GeneX3 <- FeaturePlot(alldata.integrated, features = c("SOX9", "SHH", "COL2A1","COL11A1","SNORC","CNMD","LOC125433411","LOC125434934","LOC125431862", "BMP3", "WNT5B", "WNT3A"), ncol = 4)
+
+GeneX3
+```
+
+```{r}
+GeneX4 <- FeaturePlot(alldata.integrated, features = c("SCX", "TNMD", "THBS4","TNC","COL1A1","COL1A2","COL3A1","PDGFRA","THBS1"), ncol = 3)
+
+GeneX4
+```
+
+```{r}
+Gene_fibromuscle <- FeaturePlot(alldata.integrated, features = c( "THBS4","THBS1","COL3A1",
+                                                                  "PDGFRA","TNC","Col12a1", 
+                                                                  "COL1A1","COL1A2",
+                                                                  "WIF1", "COL22A1", "CSPG4", 
+                                                                  "C1QTNF3", "CTHRC1","CHODL", 
+                                                                  "RFLNB", "NGFR"
+                                                                  ), ncol = 3)
+
+Gene_fibromuscle
+```
+
+```{r}
+Gene_kera <- FeaturePlot(alldata.integrated, features = c( "LOC125429094","LOC125444911","LOC125429093",
+                                                           "LOC125427914","LOC125445271","LOC125427916",
+                                                           "LOC125429328","LOC125429329","LOC125444911",
+                                                           "LOC125439137"
+                                                                  ), ncol = 3)
+
+Gene_kera
+```
+
+```{r}
+png(filename="figures/Fplot_musclegenes.png", 
+    width = pmax(50,1)/2.54,height = 40/2.54, units = 'in' ,res = 500)
+plot(GeneX2)
+dev.off()
+
+png(filename="figures/Fplot_cartilagesgenes.png", 
+    width = pmax(50,1)/2.54,height = 40/2.54, units = 'in' ,res = 500)
+plot(GeneX3)
+dev.off()
+
+png(filename="figures/Fplot_fibromuscle1genes.png", 
+    width = pmax(50,1)/2.54,height = 40/2.54, units = 'in' ,res = 500)
+plot(GeneX4)
+dev.off()
+
+png(filename="figures/Fplot_fibromusclesgenes.png", 
+    width = pmax(50,1)/2.54,height = 60/2.54, units = 'in' ,res = 500)
+plot(Gene_fibromuscle)
+dev.off()
+
+png(filename="figures/Fplot_keratinocytesgenes.png", 
+    width = pmax(50,1)/2.54,height = 40/2.54, units = 'in' ,res = 500)
+plot(Gene_kera)
+dev.off()
+
+```
+
+```{r}
+Musc_genes_vin <- VlnPlot(alldata.integrated, features = c("PAX3","PAX7","MYOG", "MYOD1", "CKM","LOC125445005","LOC125429055","TNNI2","TNNT2","HOXC13","CDH2"), group.by = "celltypes")
+Musc_genes_vin
+```
+
+
+
+```{r}
+Cart_genes_vin <- VlnPlot(alldata.integrated, features = c("SOX9", "SHH", "COL2A1","COL11A1","SNORC","CNMD","LOC125433411","LOC125434934","LOC125431862", "BMP3", "WNT5B", "WNT3A"), group.by = "celltypes")
+Cart_genes_vin
+```
+
+
+```{r}
+Fibromuscle_genes_vin <- VlnPlot(alldata.integrated, features = c("THBS4","THBS1","COL3A1",
+                                                                  "PDGFRA","TNC","Col12a1", 
+                                                                  "COL1A1","COL1A2",
+                                                                  "WIF1", "COL22A1", "CSPG4", 
+                                                                  "C1QTNF3", "CTHRC1","CHODL", 
+                                                                  "RFLNB", "NGFR"), group.by = "celltypes")
+Fibromuscle_genes_vin
+```
+
+
+```{r}
+Kera_genes_vin <- VlnPlot(alldata.integrated, features = c( "LOC125429094","LOC125444911","LOC125429093",
+                                                           "LOC125427914","LOC125445271","LOC125427916",
+                                                           "LOC125429328","LOC125429329","LOC125444911",
+                                                           "LOC125439137"), group.by = "celltypes")
+Kera_genes_vin
+```
+
+
+```{r}
+png(filename="figures/Vplot_musclegenes.png", 
+    width = pmax(50,1)/2.54,height = 40/2.54, units = 'in' ,res = 500)
+plot(Musc_genes_vin)
+dev.off()
+
+png(filename="figures/Vplot_cartilagesgenes.png", 
+    width = pmax(50,1)/2.54,height = 40/2.54, units = 'in' ,res = 500)
+plot(Cart_genes_vin)
+dev.off()
+
+png(filename="figures/Vplot_fibromusclesgenes.png", 
+    width = pmax(60,1)/2.54,height = 50/2.54, units = 'in' ,res = 500)
+plot(Fibromuscle_genes_vin)
+dev.off()
+
+png(filename="figures/Vplot_keratinocytesgenes.png", 
+    width = pmax(50,1)/2.54,height = 40/2.54, units = 'in' ,res = 500)
+plot(Kera_genes_vin)
+dev.off()
+
+```
+
+
+
+```{r}
+Fig_Cellcycle <- VlnPlot(alldata.integrated, features = c("S.Score","G2M.Score"), group.by= "celltypes")
+Fig_Cellcycle
+```
+
+```{r}
+png(filename="figures/Intg_cellcycles_celltypes.png", 
+    width = pmax(50,1)/2.54,height = 20/2.54, units = 'in' ,res = 500)
+plot(Fig_Cellcycle)
+dev.off()
+```
+
+
+
+
+```{r}
+saveRDS(alldata.integrated, file = "alldata_integrated_celtypes.rds")
+```
+
+
+```{r}
+All.RT <- subset(x = alldata.integrated, subset = (orig.ident == "RT_16dpa"|orig.ident =="RT_20dpa"|orig.ident =="RT_24dpa"|orig.ident =="RT_28dpa"))
+```
+
+```{r}
+saveRDS(All.RT, file = "allRT_integrated_celltypes.rds")
+```
+
+
+```{r}
+All.ET <- subset(x = alldata.integrated,  subset = (orig.ident == "ET_3dpo"|orig.ident == "ET_7dpo"))
+```
+
+
+```{r}
+saveRDS(All.ET, file = "allET_integrated_celltypes.rds")
+```
+
+
+
+```{r}
+SaveH5Seurat(All.ET, filename = "allET.integrated_celltypes.h5Seurat")
+Convert("allET.integrated_celltypes.h5Seurat", dest = "h5ad")
+
+```
+
+
+```{r}
+SaveH5Seurat(All.RT, filename = "allRT.integrated_celltypes.h5Seurat")
+Convert("allRT.integrated_celltypes.h5Seurat", dest = "h5ad")
+```
+
+
+```{r}
+##DefaultAssay(alldata.integrated) <- "RNA"
+SaveH5Seurat(alldata.integrated, filename = "alldata.integrated_celltypes.h5Seurat")
+Convert("alldata.integrated_celltypes.h5Seurat", dest = "h5ad")
+```
+
+
+```{r}
+All.RT.filt <- subset(x = All.RT,  subset= (celltypes=="Fibroblasts"|
+                                              celltypes=="Chondrocytes"|
+                                              celltypes=="Keratinocytes"|
+                                              celltypes=="Endothelial cells"|
+                                              celltypes=="Stromal cells"|
+                                              celltypes=="Myoblasts"|
+                                              celltypes=="Myocytes"|
+                                              celltypes=="Erythroid cells"|
+                                              celltypes=="Macrophages"))
+
+#All.RT.filt <- subset(x = alldata.integrated, subset = (orig.ident == "RT_16dpa"|orig.ident =="RT_20dpa"|orig.ident =="RT_24dpa"|orig.ident =="RT_28dpa"))
+```
+
+```{r}
+All.ET.filt <- subset(x = All.ET,  subset = (celltypes == "Tailbud mesenchymal cells"|
+                                               celltypes=="Mesenchymal stem cells"|
+                                               celltypes=="Neuroblasts"|
+                                               celltypes=="Neurons"|
+                                               celltypes=="Chondrocytes"|
+                                               celltypes=="Endothelial cells"|
+                                               celltypes=="Myocytes"|
+                                               celltypes=="Erythroid cells"))
+```
+
+
+
+```{r}
+table(Idents(All.RT))
+```
+
+```{r}
+table(Idents(All.RT.filt))
+```
+
+
+```{r}
+table(Idents(All.ET))
+```
+
+
+```{r}
+table(Idents(All.ET.filt))
+```
+
+```{r}
+Fibmyochond.RT.filt <- subset(x = All.RT,  subset= (celltypes=="Fibroblasts"|
+                                              celltypes=="Chondrocytes"|
+                                              celltypes=="Stromal cells"|
+                                              celltypes=="Myoblasts"|
+                                              celltypes=="Myocytes"))
+```
+
+```{r}
+saveRDS(Fibmyochond.RT.filt, file = "Fibmyochond_RT_filt.rds")
+SaveH5Seurat(Fibmyochond.RT.filt, filename = "Fibmyochond_RT_filt.h5Seurat")
+Convert("Fibmyochond_RT_filt.h5Seurat", dest = "h5ad")
+```
+
+
+
+
+```{r}
+table(Idents(alldata.integrated))
+```
+
+
+
+```{r}
+DimPlot(All.ET.filt, reduction = "umap", label = TRUE, repel = TRUE, group.by = 'celltypes')
+```
+
+
+
+```{r}
+saveRDS(All.RT.filt, file = "allRT_integrated_celltypes_filt.rds")
+saveRDS(All.ET.filt, file = "allET_integrated_celltypes_filt.rds")
+```
+
+
+```{r}
+table(Idents(All.ET.filt))
+```
+
+
+```{r}
+SaveH5Seurat(All.RT.filt, filename = "allRT.integrated_celltypes_filt.h5Seurat")
+Convert("allRT.integrated_celltypes_filt.h5Seurat", dest = "h5ad")
+
+```
+
+```{r}
+SaveH5Seurat(All.ET.filt, filename = "allET.integrated_celltypes_filt.h5Seurat")
+Convert("allET.integrated_celltypes_filt.h5Seurat", dest = "h5ad")
+```
+
+
+
+```{r}
+sessionInfo()
+```
+
+
+
+
+

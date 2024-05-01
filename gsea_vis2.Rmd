@@ -1,0 +1,1116 @@
+---
+title: "GSEA_vis"
+author: "Luthfi Nurhidayat"
+date: "2023-08-02"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(ggrepel)
+library(apeglm)
+library(eulerr)
+library(goseq)
+library(biomaRt)
+library(pathview)
+library(ensembldb)
+library(AnnotationHub)
+library(tibble)
+library(clusterProfiler)
+library(geneLenDataBase)
+library(topGO)
+library(KEGGREST)
+library(Rgraphviz)
+library(enrichplot)
+# we use ggplot2 to add x axis labels (ex: ridgeplot)
+library(ggplot2)
+library(WebGestaltR)
+library(fgsea)
+```
+
+```{r}
+library(org.Gg.eg.db)
+library(org.Hs.eg.db)
+```
+
+
+##Load Library
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(biomaRt)
+library(clusterProfiler)
+library(enrichplot)
+# we use ggplot2 to add x axis labels (ex: ridgeplot)
+library(ggplot2)
+library(fgsea)
+library(pathview)
+library(org.Gg.eg.db)
+library(org.Hs.eg.db)
+library(GOSemSim)
+library(ReactomePA)
+library(reactome.db)
+```
+
+```{r}
+##Load annotated genes data only
+load("D:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/3drnaseq/3D_fin_annoonly_output2/data/intermediate_data.RData")
+load("D:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/3drnaseq/3D_fin_annoonly_output2/data/txi_genes.RData")
+```
+
+
+
+
+##prepare the data
+
+```{r}
+library(org.Hs.eg.db)
+hs <- org.Hs.eg.db
+my.symbols <- intermediate_data$genes_3D_stat$DE.stat$target
+gene_map2 <- AnnotationDbi::select(hs, 
+       keys = my.symbols,
+       columns = c("ENTREZID", "ENSEMBL"),
+       keytype = "SYMBOL")
+```
+
+
+##read the data from limma DEG test
+
+
+```{r}
+Genestat_RT0to4 <- intermediate_data$genes_3D_stat$DE.pval.list$`RT.X4-RT.X0`
+Genestat_RT4to8 <- intermediate_data$genes_3D_stat$DE.pval.list$`RT.X8-RT.X4`
+Genestat_RT8to16 <- intermediate_data$genes_3D_stat$DE.pval.list$`RT.X16-RT.X8`
+Genestat_RT16to20 <- intermediate_data$genes_3D_stat$DE.pval.list$`RT.X20-RT.X16`
+Genestat_RT20to28 <- intermediate_data$genes_3D_stat$DE.pval.list$`RT.X28-RT.X20`
+Genestat_ET16toRT20 <- intermediate_data$genes_3D_stat$DE.pval.list$`RT.X20-ET.X16`
+Genestat_ET16toRT28 <- intermediate_data$genes_3D_stat$DE.pval.list$`RT.X28-ET.X16`
+
+```
+
+
+```{r}
+GSEA_data <- intermediate_data$genes_3D_stat$DE.stat
+```
+
+```{r}
+GSEA_RT0to4 <- GSEA_data[GSEA_data$contrast=='RT.X4-RT.X0',]
+GSEA_RT4to8 <- GSEA_data[GSEA_data$contrast=='RT.X8-RT.X4',]
+GSEA_RT8to16 <- GSEA_data[GSEA_data$contrast=='RT.X16-RT.X8',]
+GSEA_RT16to20 <- GSEA_data[GSEA_data$contrast=='RT.X20-RT.X16',]
+GSEA_RT20to28 <- GSEA_data[GSEA_data$contrast=='RT.X28-RT.X20',]
+GSEA_ET16toRT20 <- GSEA_data[GSEA_data$contrast=='RT.X20-ET.X16',]
+GSEA_ET16toRT28 <- GSEA_data[GSEA_data$contrast=='RT.X28-ET.X16',]
+```
+
+```{r}
+deleteDuplicatesDataFrame <- function(df, col) {
+  dup.idx <- which(duplicated(df[col]))
+  return(df[-dup.idx,])
+}
+annotate <- function(datagenes) {
+  genesmapped <- merge(as.data.frame(datagenes), gene_map2,
+                     by.x = 'target',
+                     by.y = "SYMBOL")
+ genesmapped <- deleteDuplicatesDataFrame(genesmapped, 'target')
+# rownames(genesmapped) <- genesmapped[,1]
+# genesmapped <- genesmapped[,-1]
+}
+```
+
+
+```{r}
+GSEA_RT0to4_anno <- annotate(datagenes = GSEA_RT0to4)
+GSEA_RT4to8_anno <- annotate(datagenes = GSEA_RT4to8)
+GSEA_RT8to16_anno <- annotate(datagenes = GSEA_RT8to16)
+GSEA_RT16to20_anno <- annotate(datagenes = GSEA_RT16to20)
+GSEA_RT20to28_anno <- annotate(datagenes = GSEA_RT20to28)
+GSEA_ET16toRT20_anno <- annotate(datagenes = GSEA_ET16toRT20)
+GSEA_ET16toRT28_anno <- annotate(datagenes = GSEA_ET16toRT28)
+```
+
+
+```{r}
+GSEA_RT <- rbind(GSEA_RT0to4_anno,GSEA_RT4to8_anno,GSEA_RT8to16_anno,GSEA_RT16to20_anno,GSEA_RT20to28_anno)
+GSEA_RT[GSEA_RT == 'RT.X4-RT.X0'] <- '4dpa'
+GSEA_RT[GSEA_RT == 'RT.X8-RT.X4'] <- '8dpa'
+GSEA_RT[GSEA_RT == 'RT.X16-RT.X8'] <- '16dpa'
+GSEA_RT[GSEA_RT == 'RT.X20-RT.X16'] <- '20dpa'
+GSEA_RT[GSEA_RT == 'RT.X28-RT.X20'] <- '28dpa'
+
+```
+
+
+```{r}
+#GSEA_RT <- subset(GSEA_RT, select=c(5,2,4))
+#GSEA_RT <- na.omit(GSEA_RT)
+```
+
+
+```{r}
+sigGSEA_RT <- GSEA_RT[GSEA_RT$adj.pval < 0.05,]
+sigGSEA_RT <- subset(sigGSEA_RT, select=c(5,2,4))
+sigGSEA_RT <- na.omit(sigGSEA_RT)
+
+```
+
+```{r}
+
+sigGSEA_RT_high <- sigGSEA_RT[abs(sigGSEA_RT$log2FC) > 1,]
+sigGSEA_RT_high$group <- "up"
+sigGSEA_RT_high$group[sigGSEA_RT_high$log2FC < 0] <- "down"
+
+```
+
+
+```{r}
+RT_compare_bp <- compareCluster(ENTREZID~contrast+group, data=sigGSEA_RT_high,
+                             fun='enrichGO', 
+                             ont = "BP" ,
+                             OrgDb='org.Hs.eg.db',
+                             keyType = "ENTREZID",
+                             universe = univGenes,
+                             qvalueCutoff = 0.1
+                             #exponent = 1,
+                             #nPerm = 10000,
+                             #minGSSize = 10,
+                             #maxGSSize = 500,
+                             #pvalueCutoff = 0.05,
+                            # pAdjustMethod = "BH",
+                             #verbose = TRUE,
+                             #seed = FALSE
+                             )
+as.data.frame(RT_compare_bp)
+```
+
+```{r}
+RT_bpcompare_plot <- dotplot(RT_compare_bp, showCategory=3, font.size=11, title='GO Enrichment-Biological Process', label_format = 50)
+RT_bpcompare_plot
+```
+
+```{r}
+RT_bpcompare_plot2 <- dotplot(RT_compare_bp, x="group", showCategory=3, font.size=11, title='GO Enrichment-Biological Process', label_format = 50) + facet_grid(~contrast)
+RT_bpcompare_plot2
+```
+
+
+```{r}
+######################################################################
+##----->> save plot
+png(filename="D:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/heatmap/RT_bpcompare_plot.png", 
+    width = pmax(20,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+RT_bpcompare_plot
+dev.off()
+```
+
+```{r}
+######################################################################
+##----->> save plot
+png(filename="D:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/heatmap/RT_bpcompare_plot2.png", 
+    width = pmax(20,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+RT_bpcompare_plot2
+dev.off()
+```
+
+```{r}
+RT_compare_bp <- pairwise_termsim(RT_compare_bp)
+RT_compare_bp2 <- simplify(RT_compare_bp, cutoff=0.7, by="p.adjust", select_fun=min)
+```
+
+```{r}
+RT_bpcompare2_plot2 <- dotplot(RT_compare_bp2, x="group", showCategory=3 , font.size=11, title='GO Enrichment-Biological Process', label_format = 50) + facet_grid(~contrast)
+RT_bpcompare2_plot2
+```
+
+```{r}
+######################################################################
+##----->> save plot
+png(filename="D:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/heatmap/RT_bpcompare2_plot2.png", 
+    width = pmax(20,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+RT_bpcompare2_plot2
+dev.off()
+```
+
+##compareKEGG
+
+```{r}
+univGenes <- GSEA_RT_anno %>%
+  pull("ENTREZID")
+```
+
+
+```{r}
+RT_compare_kegg <- compareCluster(ENTREZID~contrast+group, data=sigGSEA_RT_high,
+                             fun='enrichKEGG', 
+                             organism = "hsa",
+                             keyType = "kegg",
+                             qvalueCutoff = 0.1,
+                             universe = univGenes
+                             )
+as.data.frame(RT_compare_kegg)
+```
+
+```{r}
+RT_keggcompare_plot2 <- dotplot(RT_compare_kegg, x="group",showCategory = 4, font.size=11, title='KEGG Enrichment', label_format = 50) + facet_grid(~contrast)
+RT_keggcompare_plot2
+```
+
+
+```{r}
+######################################################################
+##----->> save plot
+png(filename="D:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/heatmap/RT_keggcompare_plot2.png", 
+    width = pmax(20,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+RT_keggcompare_plot2
+dev.off()
+```
+
+##compare pathways
+
+```{r}
+get_wp_organisms() 
+```
+
+
+```{r}
+RT_compare_WP <- compareCluster(ENTREZID~contrast+group, data=sigGSEA_RT_high,
+                             fun='enrichWP', 
+                             organism = "Homo sapiens",
+                            # keyType = "kegg",
+                             qvalueCutoff = 0.1,
+                             universe = univGenes
+                             )
+as.data.frame(RT_compare_WP)
+```
+
+```{r}
+RT_WPcompare_plot <- dotplot(RT_compare_WP, x="group",showCategory = 3, font.size=11, title='Pathways Enrichment', label_format = 50) + facet_grid(~contrast)
+RT_WPcompare_plot
+```
+
+
+### GSEA: Gene ontology-Biological Process 
+
+##RT0-4
+
+```{r}
+# we want the log2 fold change 
+RT0to4_genelist <- GSEA_RT0to4$log2FC
+names(RT0to4_genelist) <- GSEA_RT0to4$target
+RT0to4_genelist<-na.omit(RT0to4_genelist)
+RT0to4_genelist = sort(RT0to4_genelist, decreasing = TRUE)
+head(RT0to4_genelist)
+
+```
+
+```{r}
+GO0to4_bp <- gseGO(geneList = RT0to4_genelist ,
+      ont = "BP",
+      OrgDb = "org.Hs.eg.db",
+      keyType = "SYMBOL",
+      exponent = 1,
+      #nPerm = 10000,
+      minGSSize = 10,
+      maxGSSize = 500,
+      pvalueCutoff = 0.05,
+      pAdjustMethod = "BH",
+      verbose = TRUE,
+      seed = FALSE)
+
+GO0to4_bp@result %>% 
+  arrange(pvalue) %>% 
+  head(8)
+
+```
+
+
+
+```{r}
+dotplot(GO0to4_bp,
+        x = "NES",
+  color = "p.adjust",
+  showCategory = 20,
+  size = NULL,
+  split = NULL,
+  font.size = 12,
+  title = "",
+  orderBy = "x",
+  label_format = 30
+)
+```
+
+##RT4-8
+
+```{r}
+# we want the log2 fold change 
+RT4to8_genelist <- GSEA_RT4to8$log2FC
+names(RT4to8_genelist) <- GSEA_RT4to8$target
+RT4to8_genelist<-na.omit(RT4to8_genelist)
+RT4to8_genelist = sort(RT4to8_genelist, decreasing = TRUE)
+head(RT4to8_genelist)
+```
+
+
+```{r}
+GO4to8_bp <- gseGO(geneList = RT4to8_genelist ,
+      ont = "BP",
+      OrgDb = "org.Hs.eg.db",
+      keyType = "SYMBOL",
+      exponent = 1,
+      #nPerm = 10000,
+      minGSSize = 10,
+      maxGSSize = 500,
+      pvalueCutoff = 0.05,
+      pAdjustMethod = "BH",
+      verbose = TRUE,
+      seed = FALSE)
+
+GO4to8_bp@result %>% 
+  arrange(pvalue) %>% 
+  head(8)
+```
+
+```{r}
+dotplot(GO4to8_bp,
+        x = "NES",
+  color = "p.adjust",
+  showCategory = 20,
+  size = NULL,
+  split = NULL,
+  font.size = 9,
+  title = "",
+  orderBy = "x",
+  label_format = 30
+)
+```
+
+```{r}
+GO4to8_bp <- pairwise_termsim(GO4to8_bp)
+GO4to8_bp2 <- simplify(GO4to8_bp, cutoff=0.7, by="p.adjust", select_fun=min)
+```
+
+```{r}
+dotplot(GO4to8_bp2,
+        x = "NES",
+  color = "p.adjust",
+  showCategory = 20,
+  size = NULL,
+  split = NULL,
+  font.size = 9,
+  title = "",
+  orderBy = "x",
+  label_format = 30
+)
+```
+
+
+
+##RT8-16
+```{r}
+# we want the log2 fold change 
+RT8to16_genelist <- GSEA_RT8to16$log2FC
+names(RT8to16_genelist) <- GSEA_RT8to16$target
+RT8to16_genelist<-na.omit(RT8to16_genelist)
+RT8to16_genelist = sort(RT8to16_genelist, decreasing = TRUE)
+head(RT8to16_genelist)
+```
+
+
+```{r}
+GO8to16_bp <- gseGO(geneList = RT8to16_genelist ,
+      ont = "BP",
+      OrgDb = "org.Hs.eg.db",
+      keyType = "SYMBOL",
+      exponent = 1,
+      #nPerm = 10000,
+      minGSSize = 10,
+      maxGSSize = 500,
+      pvalueCutoff = 0.05,
+      pAdjustMethod = "BH",
+      verbose = TRUE,
+      seed = FALSE)
+
+GO8to16_bp@result %>% 
+  arrange(pvalue) %>% 
+  head(8)
+```
+
+
+```{r}
+dotplot(GO8to16_bp,
+        x = "NES",
+  color = "p.adjust",
+  showCategory = 20,
+  size = NULL,
+  split = NULL,
+  font.size = 12,
+  title = "",
+  orderBy = "x",
+  label_format = 30
+)
+```
+
+
+##RT16-20
+```{r}
+# we want the log2 fold change 
+RT16to20_genelist <- GSEA_RT16to20$log2FC
+names(RT16to20_genelist) <- GSEA_RT16to20$target
+RT16to20_genelist<-na.omit(RT16to20_genelist)
+RT16to20_genelist = sort(RT16to20_genelist, decreasing = TRUE)
+head(RT16to20_genelist)
+```
+
+
+```{r}
+GO16to20_bp <- gseGO(geneList = RT16to20_genelist ,
+      ont = "BP",
+      OrgDb = "org.Hs.eg.db",
+      keyType = "SYMBOL",
+      exponent = 1,
+      #nPerm = 10000,
+      minGSSize = 10,
+      maxGSSize = 500,
+      pvalueCutoff = 0.05,
+      pAdjustMethod = "BH",
+      verbose = TRUE,
+      seed = FALSE)
+
+GO16to20_bp@result %>% 
+  arrange(pvalue) %>% 
+  head(8)
+```
+
+
+##RT20-28
+```{r}
+# we want the log2 fold change 
+RT20to28_genelist <- GSEA_RT20to28$log2FC
+names(RT20to28_genelist) <- GSEA_RT20to28$target
+RT20to28_genelist<-na.omit(RT20to28_genelist)
+RT20to28_genelist = sort(RT20to28_genelist, decreasing = TRUE)
+head(RT20to28_genelist)
+```
+
+
+```{r}
+GO20to28_bp <- gseGO(geneList = RT20to28_genelist ,
+      ont = "BP",
+      OrgDb = "org.Hs.eg.db",
+      keyType = "SYMBOL",
+      exponent = 1,
+      #nPerm = 10000,
+      minGSSize = 10,
+      maxGSSize = 500,
+      pvalueCutoff = 0.05,
+      pAdjustMethod = "BH",
+      verbose = TRUE,
+      seed = FALSE)
+
+GO20to28_bp@result %>% 
+  arrange(pvalue) %>% 
+  head(8)
+```
+
+##ET16-RT20
+```{r}
+# we want the log2 fold change 
+ET16toRT20_genelist <- GSEA_ET16toRT20$log2FC
+names(ET16toRT20_genelist) <- GSEA_ET16toRT20$target
+ET16toRT20_genelist<-na.omit(ET16toRT20_genelist)
+ET16toRT20_genelist = sort(ET16toRT20_genelist, decreasing = TRUE)
+head(ET16toRT20_genelist)
+```
+
+
+```{r}
+GOET16toRT20_bp <- gseGO(geneList = ET16toRT20_genelist ,
+      ont = "BP",
+      OrgDb = "org.Hs.eg.db",
+      keyType = "SYMBOL",
+      exponent = 1,
+      #nPerm = 10000,
+      minGSSize = 10,
+      maxGSSize = 500,
+      pvalueCutoff = 0.05,
+      pAdjustMethod = "BH",
+      verbose = TRUE,
+      seed = FALSE)
+
+GOET16toRT20_bp@result %>% 
+  arrange(pvalue) %>% 
+  head(8)
+```
+
+
+##ET16-RT28
+```{r}
+# we want the log2 fold change 
+ET16toRT28_genelist <- GSEA_ET16toRT28$log2FC
+names(ET16toRT28_genelist) <- GSEA_ET16toRT28$target
+ET16toRT28_genelist<-na.omit(ET16toRT28_genelist)
+ET16toRT28_genelist = sort(ET16toRT28_genelist, decreasing = TRUE)
+head(ET16toRT28_genelist)
+```
+
+
+```{r}
+GOET16toRT28_bp <- gseGO(geneList = ET16toRT28_genelist ,
+      ont = "BP",
+      OrgDb = "org.Hs.eg.db",
+      keyType = "SYMBOL",
+      exponent = 1,
+      #nPerm = 10000,
+      minGSSize = 10,
+      maxGSSize = 500,
+      pvalueCutoff = 0.05,
+      pAdjustMethod = "BH",
+      verbose = TRUE,
+      seed = FALSE)
+
+GOET16toRT28_bp@result %>% 
+  arrange(pvalue) %>% 
+  head(8)
+```
+
+```{r}
+ggo_16to20 <- groupGO(gene     = RT16to20_genelist,
+               OrgDb    = org.Hs.eg.db,
+               ont      = "BP",
+               level    = 3,
+               readable = TRUE)
+
+head(ggo_16to20)
+```
+
+
+
+
+###Merge and Visualise gsea results for RT
+
+```{r}
+GO0to4_bp <- pairwise_termsim(GO0to4_bp)
+GO4to8_bp <- pairwise_termsim(GO4to8_bp)
+GO8to16_bp <- pairwise_termsim(GO8to16_bp)
+GO16to20_bp <- pairwise_termsim(GO16to20_bp)
+GO20to28_bp <- pairwise_termsim(GO20to28_bp)
+```
+
+
+```{r}
+GO0to4_bp2 <- simplify(GO0to4_bp, cutoff=0.7, by="p.adjust", select_fun=min)
+GO4to8_bp2 <- simplify(GO4to8_bp, cutoff=0.7, by="p.adjust", select_fun=min)
+GO8to16_bp2 <- simplify(GO8to16_bp, cutoff=0.7, by="p.adjust", select_fun=min)
+GO16to20_bp2 <- simplify(GO16to20_bp, cutoff=0.7, by="p.adjust", select_fun=min)
+GO20to28_bp2 <- simplify(GO20to28_bp, cutoff=0.7, by="p.adjust", select_fun=min)
+```
+
+
+
+
+```{r}
+RTlist <- list("RT_4dpa"=GO0to4_bp, "RT_8dpa"=GO4to8_bp,"RT_16dpa"= GO8to16_bp, "RT_20dpa"= GO16to20_bp, "RT_28dpa"= GO20to28_bp)
+RT_gsea_bpmerge <- merge_result(enrichResultList = RTlist)
+```
+
+```{r}
+RT_gsea_bpmerge@compareClusterResult %>% 
+  arrange(pvalue) %>% 
+  head(8)
+```
+
+
+```{r}
+RT_gsea_bpmerge_plot <- dotplot(RT_gsea_bpmerge,
+                      x = "NES",
+                      color = "p.adjust",
+                      showCategory = 15,
+                      size = NULL,
+                      split = NULL,
+                      font.size = 9,
+                      title = "GO Enrichment: Biological Process",
+                      label_format = 50
+                      )+ facet_grid(~Cluster) 
+RT_gsea_bpmerge_plot
+```
+
+```{r}
+######################################################################
+##----->> save plot
+png(filename="D:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/figures/RT_gsea_bpmerge_plot2.png", 
+    width = pmax(25,1)/2.54,height = 25/2.54, units = 'in' ,res = 300)
+RT_gsea_bpmerge_plot
+dev.off()
+```
+
+```{r}
+RTlist2 <- list("RT_4dpa"=GO0to4_bp2, "RT_8dpa"=GO4to8_bp2,"RT_16dpa"= GO8to16_bp2, "RT_20dpa"= GO16to20_bp2, "RT_28dpa"= GO20to28_bp2)
+RT_gsea_bpmerge2 <- merge_result(enrichResultList = RTlist2)
+```
+
+```{r}
+
+```
+
+
+
+```{r}
+RT_gsea_bpmerge_plot2 <- dotplot(RT_gsea_bpmerge2,
+                      x = "NES",
+                      color = "p.adjust",
+                      showCategory = 15,
+                      size = NULL,
+                      split = NULL,
+                      font.size = 10,
+                      title = "GO Enrichment: Biological Process",
+                      label_format = 50
+                      )+ facet_grid(~Cluster) 
+RT_gsea_bpmerge_plot2
+```
+
+```{r}
+######################################################################
+##----->> save plot
+png(filename="D:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/figures/RT_gsea_bpmerge_plot2_2.png", 
+    width = pmax(25,1)/2.54,height = 25/2.54, units = 'in' ,res = 300)
+RT_gsea_bpmerge_plot2
+dev.off()
+```
+
+
+
+```{r}
+RTGOlist <- list("muscle organ development",
+"skeletal muscle cell differentiation",
+"striated muscle cell development",
+"muscle structure development",
+"skeletal muscle organ development",
+"striated muscle contraction",
+"leukocyte migration",
+"innate immune response",
+"osteoclast differentiation",
+"keratinocyte differentiation",
+"bone remodeling",
+"regulation of bone remodeling",
+"extracellular matrix organization",
+"limb morphogenesis",
+"anterior/posterior pattern specification",
+"embryonic pattern specification",
+"pattern specification process",
+"regionalization",
+"axonogenesis",
+"embryonic morphogenesis",
+"collagen fibril organization",
+"epidermis development",
+"mesenchyme development",
+"Wnt signaling pathway",
+"bone cell development",
+"osteoclast development",
+"cartilage development",
+"spinal cord development",
+"somite development",
+"cell fate specification",
+"neural tube development",
+"embryonic skeletal system development",
+"neuron migration",
+"immune response-regulating signaling pathway",
+"myofibril assembly",
+"adaptive immune response",
+"response to BMP",
+"tissue morphogenesis")
+```
+
+
+
+```{r}
+RT_gsea_bpmerge_plot3 <- dotplot(RT_gsea_bpmerge,
+                      x = "NES",
+                      color = "p.adjust",
+                      showCategory = RTGOlist,
+                      size = NULL,
+                      split = NULL,
+                      font.size = 11,
+                      title = "GO Enrichment: Biological Process",
+                      label_format = 50
+                      )+ facet_grid(~Cluster) 
+RT_gsea_bpmerge_plot3
+```
+
+
+```{r}
+######################################################################
+##----->> save plot
+png(filename="D:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/figures/RT_gsea_bpmerge_plot3_1.png", 
+    width = pmax(25,1)/2.54,height = 18/2.54, units = 'in' ,res = 300)
+RT_gsea_bpmerge_plot3
+dev.off()
+```
+
+```{r}
+RT_gsea_bpmerge_plot4 <- dotplot(RT_gsea_bpmerge2,
+                      x = "NES",
+                      color = "p.adjust",
+                      showCategory = RTGOlist,
+                      size = NULL,
+                      split = NULL,
+                      font.size = 11,
+                      title = "GO Enrichment: Biological Process",
+                      label_format = 50
+                      )+ facet_grid(~Cluster) 
+RT_gsea_bpmerge_plot4
+```
+
+
+```{r}
+######################################################################
+##----->> save plot
+png(filename="D:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/figures/RT_gsea_bpmerge_plot4_1.png", 
+    width = pmax(25,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+RT_gsea_bpmerge_plot4
+dev.off()
+```
+
+```{r}
+RT_gsea_bpmerge_plot4$data %>% 
+  arrange(pvalue) %>% 
+  head(8)
+```
+
+
+```{r}
+
+```
+
+
+
+###Merge and Visualise gsea results for ET-RT
+```{r}
+GOET16toRT20_bp <- pairwise_termsim(GOET16toRT20_bp)
+GOET16toRT28_bp <- pairwise_termsim(GOET16toRT28_bp)
+```
+
+```{r}
+GOET16toRT20_bp2 <- simplify(GOET16toRT20_bp, cutoff=0.7, by="p.adjust", select_fun=min)
+GOET16toRT28_bp2 <- simplify(GOET16toRT28_bp, cutoff=0.7, by="p.adjust", select_fun=min)
+```
+
+
+
+```{r}
+ETlist <- list("ET16dpo-RT20dpa"=GOET16toRT20_bp, "ET16dpo-RT28dpa"=GOET16toRT28_bp)
+ET_gsea_bpmerge <- merge_result(enrichResultList = ETlist)
+```
+
+
+```{r}
+ET_gsea_bpmerge_plot <- dotplot(ET_gsea_bpmerge,
+                      x = "NES",
+                      color = "p.adjust",
+                      showCategory = 20,
+                      size = NULL,
+                      split = NULL,
+                      font.size = 10,
+                      title = "GO Enrichment: Biological Process",
+                      label_format = 50
+                      )+ facet_grid(~Cluster) 
+ET_gsea_bpmerge_plot
+```
+
+```{r}
+######################################################################
+##----->> save plot
+png(filename="G:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/figures/ET_gsea_bpmerge_plot1.png", 
+    width = pmax(17,1)/2.54,height = 20/2.54, units = 'in' ,res = 300)
+ET_gsea_bpmerge_plot
+dev.off()
+```
+
+```{r}
+ETlist2 <- list("ET16dpo-RT20dpa"=GOET16toRT20_bp2, "ET16dpo-RT28dpa"=GOET16toRT28_bp2)
+ET_gsea_bpmerge2 <- merge_result(enrichResultList = ETlist2)
+```
+
+```{r}
+ET_gsea_bpmerge_plot2 <- dotplot(ET_gsea_bpmerge2,
+                      x = "NES",
+                      color = "p.adjust",
+                      showCategory = 15,
+                      size = NULL,
+                      split = NULL,
+                      font.size = 10,
+                      title = "GO Enrichment: Biological Process",
+                      label_format = 50
+                      )+ facet_grid(~Cluster) 
+ET_gsea_bpmerge_plot2
+```
+
+```{r}
+######################################################################
+##----->> save plot
+png(filename="D:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/figures/ET_gsea_bpmerge_plot2.png", 
+    width = pmax(17,1)/2.54,height = 20/2.54, units = 'in' ,res = 300)
+ET_gsea_bpmerge_plot2
+dev.off()
+```
+
+```{r}
+ET_gsea_bpmerge_plot3 <- dotplot(ET_gsea_bpmerge,
+                      x = "NES",
+                      color = "p.adjust",
+                      showCategory = RTGOlist,
+                      size = NULL,
+                      split = NULL,
+                      font.size = 12,
+                      title = "GO Enrichment: Biological Process",
+                      label_format = 50
+                      )+ facet_grid(~Cluster) 
+ET_gsea_bpmerge_plot3
+```
+
+
+```{r}
+######################################################################
+##----->> save plot
+png(filename="D:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/figures/ET_gsea_bpmerge_plot3.png", 
+    width = pmax(17,1)/2.54,height = 20/2.54, units = 'in' ,res = 300)
+ET_gsea_bpmerge_plot3
+dev.off()
+```
+
+```{r}
+ET_gsea_bpmerge_plot4 <- dotplot(ET_gsea_bpmerge2,
+                      x = "NES",
+                      color = "p.adjust",
+                      showCategory = RTGOlist,
+                      size = NULL,
+                      split = NULL,
+                      font.size = 11,
+                      title = "GO Enrichment: Biological Process",
+                      label_format = 50
+                      )+ facet_grid(~Cluster) 
+ET_gsea_bpmerge_plot4
+```
+
+```{r}
+######################################################################
+##----->> save plot
+png(filename="D:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/figures/ET_gsea_bpmerge_plot4.png", 
+    width = pmax(17,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+ET_gsea_bpmerge_plot4
+dev.off()
+```
+
+
+```{r}
+RT_gsea_bpmerge_dataprint <- RT_gsea_bpmerge_plot4$data %>% arrange(pvalue)
+ET_gsea_bpmerge_dataprint <- ET_gsea_bpmerge_plot4$data %>% arrange(pvalue)
+   
+```
+
+```{r}
+write.xlsx(RT_gsea_bpmerge_dataprint, "D:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/GO/RT_gsea_bpmerge_dataprint.xlsx", rowNames = TRUE)
+write.xlsx(ET_gsea_bpmerge_dataprint, "D:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/GO/ET_gsea_bpmerge_dataprint.xlsx", rowNames = TRUE)
+
+```
+
+
+```{r}
+RT_gsea_bpmerge2 <- pairwise_termsim(RT_gsea_bpmerge2)
+```
+
+```{r}
+
+RT_gsea_bpmerge_emap <- emapplot(RT_gsea_bpmerge2, 
+                                 showCategory=15 ,
+                                 pie="count", 
+                                 legend_n=3, 
+                                 cex_category=2.5,
+                                 cex_label_category=2,
+                                 cex_line=0.5,
+                                 #layout="kk"
+                                 ) 
+RT_gsea_bpmerge_emap
+```
+
+
+```{r}
+ET_gsea_bpmerge2 <- pairwise_termsim(ET_gsea_bpmerge2)
+```
+
+
+```{r}
+ET_gsea_bpmerge_emap <- emapplot(ET_gsea_bpmerge2, 
+                                  showCategory=20 ,
+                                 pie="count", 
+                                 legend_n=3, 
+                                 cex_category=1.5,
+                                 cex_label_category=2,
+                                 cex_line=1,
+                                 #layout="kk"
+                                 ) 
+ET_gsea_bpmerge_emap
+```
+
+
+```{r}
+RT_gsea_bpmerge_cnetplot <- cnetplot(RT_gsea_bpmerge2, 
+                                     showCategory=RTGOlist ,
+                                     node_label="category", 
+                                     cex_category=4,
+                                     legend_n=3,
+                                     cex_gene=1.5,
+                                     cex_label_category = 2) 
+RT_gsea_bpmerge_cnetplot
+```
+
+```{r}
+ET_gsea_bpmerge_cnetplot <- cnetplot(ET_gsea_bpmerge2, 
+                                     showCategory=RTGOlist ,
+                                     node_label="category", 
+                                     cex_category=4,
+                                     legend_n=3,
+                                     cex_gene=1.5,
+                                     cex_label_category = 2) 
+ET_gsea_bpmerge_cnetplot
+```
+
+
+```{r}
+#####################################################################
+##----->> save plot
+png(filename="D:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/figures/RT_gsea_bpmerge_emap.png", 
+    width = pmax(40,1)/2.54,height = 30/2.54, units = 'in' ,res = 300)
+RT_gsea_bpmerge_emap
+dev.off()
+
+png(filename="D:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/figures/ET_gsea_bpmerge_emap.png", 
+    width = pmax(40,1)/2.54,height = 30/2.54, units = 'in' ,res = 300)
+ET_gsea_bpmerge_emap
+dev.off()
+
+png(filename="D:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/figures/RT_gsea_bpmerge_cnetplot.png", 
+    width = pmax(40,1)/2.54,height = 30/2.54, units = 'in' ,res = 300)
+RT_gsea_bpmerge_cnetplot
+dev.off()
+
+png(filename="D:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/figures/ET_gsea_bpmerge_cnetplot.png", 
+    width = pmax(40,1)/2.54,height = 30/2.54, units = 'in' ,res = 300)
+ET_gsea_bpmerge_cnetplot
+dev.off()
+
+
+
+```
+
+
+```{r}
+RTBp_1 <- data.frame(RT_gsea_bpmerge@compareClusterResult)
+RTBp_2 <- subset(RTBp_1, select=c(2,3,4))
+RTBp_2 <- unique(RTBp_2)
+RTBp_2
+```
+
+
+
+```{r}
+ETBp_1 <- data.frame(ET_gsea_bpmerge@compareClusterResult)
+ETBp_2 <- subset(ETBp_1, select=c(2,3,4))
+ETBp_2 <- unique(ETBp_2)
+ETBp_2
+```
+
+```{r}
+write.csv(RTBp_1, "G:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/GO/RT_gseaGO_BP1.csv", row.names = TRUE)
+write.csv(RTBp_2, "G:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/GO/RT_gseaGO_BP2.csv", row.names = TRUE)
+write.csv(ETBp_1, "G:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/GO/ET_gseaGO_BP1.csv", row.names = TRUE)
+write.csv(ETBp_2, "G:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/GO/ET_gseaGO_BP2.csv", row.names = TRUE)
+
+```
+
+
+```{r}
+RTBp_1b <- data.frame(RT_gsea_bpmerge2@compareClusterResult)
+RTBp_2b <- subset(RTBp_1b, select=c(2,3,4))
+RTBp_2b <- unique(RTBp_2b)
+RTBp_2b
+```
+
+```{r}
+ETBp_1b <- data.frame(ET_gsea_bpmerge2@compareClusterResult)
+ETBp_2b <- subset(ETBp_1b, select=c(2,3,4))
+ETBp_2b <- unique(ETBp_2b)
+ETBp_2b
+```
+
+```{r}
+library(openxlsx)
+write.xlsx(RTBp_1b, "D:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/GO/RT_gseaGO_BP1b.xlsx", rowNames = TRUE)
+write.xlsx(RTBp_2b, "D:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/GO/RT_gseaGO_BP2b.xlsx", rowNames = TRUE)
+write.xlsx(ETBp_1b, "D:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/GO/ET_gseaGO_BP1b.xlsx", rowNames = TRUE)
+write.xlsx(ETBp_2b, "D:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/GO/ET_gseaGO_BP2b.xlsx", rowNames = TRUE)
+```
+
+
+```{r}
+RT_gsea_bpmerge_treeplot <- enrichplot::treeplot(RT_gsea_bpmerge2,
+                        showCategory = 10, 
+                        color = "NES",
+                        label_format = 15,
+                        fontsize = 4,
+                        nWords = 20,
+                        label_words_n = 4,
+                        hclust_method = "ward.D" )
+RT_gsea_bpmerge_treeplot
+```
+
+```{r}
+png(filename="D:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/figures/RT_gsea_bpmerge_treeplot.png", 
+    width = pmax(30,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+RT_gsea_bpmerge_treeplot
+dev.off()
+```
+
+
+```{r}
+RT_gsea_bpmerge_treeplot <- enrichplot::treeplot(RT_gsea_bpmerge2,
+                        showCategory = 10,
+  color = "NES",
+  nWords = 4,
+  nCluster = 5,
+  cex_category = 2,
+  split = TRUE,
+  label_format = NULL,
+  label_format_cladelab = 30,
+  label_format_tiplab = NULL,
+  fontsize = 4,
+  offset = rel(1),
+  pie = "equal",
+  legend_n = 3,
+  offset_tiplab = rel(1),
+  hclust_method = "ward.D",
+  group_color = NULL,
+  extend = 0.3,
+  hilight = TRUE,
+  geneClusterPanel = "heatMap",
+  hexpand = 0.1,
+  align = "both",
+  cluster.params = list(method = "ward.D", n = 5, color = NULL, label_words_n = 4,
+    label_format = 30),
+  hilight.params = list(hilight = TRUE, align = "both"),
+  clusterPanel.params = list(clusterPanel = "heatMap", pie = "equal", legend_n = 3),
+  offset.params = list(bar_tree = rel(1), tiplab = rel(1), extend = 0.3, hexpand = 0.1),
+) 
+RT_gsea_bpmerge_treeplot
+```
+
+

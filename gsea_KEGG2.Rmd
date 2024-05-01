@@ -1,0 +1,1132 @@
+---
+title: "GSEA_KEGG"
+author: "luthfi"
+date: "2023-08-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+BiocManager::install("clusterProfiler")
+```
+
+```{r}
+BiocManager::install("ReactomePA")
+```
+
+
+##Load Library
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(biomaRt)
+library(clusterProfiler)
+library(enrichplot)
+# we use ggplot2 to add x axis labels (ex: ridgeplot)
+library(ggplot2)
+library(fgsea)
+library(pathview)
+library(org.Gg.eg.db)
+library(org.Hs.eg.db)
+library(GOSemSim)
+library(ReactomePA)
+library(reactome.db)
+```
+
+
+```{r}
+##Load annotated genes data only
+load("D:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/3drnaseq/3D_fin_annoonly_output2/data/intermediate_data.RData")
+load("D:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/3drnaseq/3D_fin_annoonly_output2/data/txi_genes.RData")
+```
+
+
+##prepare the data
+
+```{r}
+library(org.Hs.eg.db)
+hs <- org.Hs.eg.db
+my.symbols <- intermediate_data$genes_3D_stat$DE.stat$target
+gene_map2 <- AnnotationDbi::select(hs, 
+       keys = my.symbols,
+       columns = c("ENTREZID", "ENSEMBL"),
+       keytype = "SYMBOL")
+```
+
+##read the data from limma DEG test
+
+```{r}
+GSEA_data <- intermediate_data$genes_3D_stat$DE.stat
+```
+
+```{r}
+GSEA_RT0to4 <- GSEA_data[GSEA_data$contrast=='RT.X4-RT.X0',]
+GSEA_RT4to8 <- GSEA_data[GSEA_data$contrast=='RT.X8-RT.X4',]
+GSEA_RT8to16 <- GSEA_data[GSEA_data$contrast=='RT.X16-RT.X8',]
+GSEA_RT16to20 <- GSEA_data[GSEA_data$contrast=='RT.X20-RT.X16',]
+GSEA_RT20to28 <- GSEA_data[GSEA_data$contrast=='RT.X28-RT.X20',]
+GSEA_ET16toRT20 <- GSEA_data[GSEA_data$contrast=='RT.X20-ET.X16',]
+GSEA_ET16toRT28 <- GSEA_data[GSEA_data$contrast=='RT.X28-ET.X16',]
+```
+
+```{r}
+deleteDuplicatesDataFrame <- function(df, col) {
+  dup.idx <- which(duplicated(df[col]))
+  return(df[-dup.idx,])
+}
+annotate <- function(datagenes) {
+  genesmapped <- merge(as.data.frame(datagenes), gene_map2,
+                     by.x = 'target',
+                     by.y = "SYMBOL")
+ genesmapped <- deleteDuplicatesDataFrame(genesmapped, 'target')
+# rownames(genesmapped) <- genesmapped[,1]
+# genesmapped <- genesmapped[,-1]
+}
+```
+
+
+```{r}
+GSEA_RT0to4_anno <- annotate(datagenes = GSEA_RT0to4)
+GSEA_RT4to8_anno <- annotate(datagenes = GSEA_RT4to8)
+GSEA_RT8to16_anno <- annotate(datagenes = GSEA_RT8to16)
+GSEA_RT16to20_anno <- annotate(datagenes = GSEA_RT16to20)
+GSEA_RT20to28_anno <- annotate(datagenes = GSEA_RT20to28)
+GSEA_ET16toRT20_anno <- annotate(datagenes = GSEA_ET16toRT20)
+GSEA_ET16toRT28_anno <- annotate(datagenes = GSEA_ET16toRT28)
+```
+
+
+## GSEA: KEGG Enrichment 
+
+##RT0-4
+
+```{r}
+# we want the log2 fold change 
+RT0to4_entrezlist1 <-  subset(GSEA_RT0to4_anno, select=c(5,4))
+RT0to4_entrezlist1 <- na.omit(RT0to4_entrezlist1)
+RT0to4_entrezlist2 <- RT0to4_entrezlist1$log2FC
+names(RT0to4_entrezlist2) <- RT0to4_entrezlist1$ENTREZID
+RT0to4_entrezlist2 = sort(RT0to4_entrezlist2, decreasing = TRUE)
+head(RT0to4_entrezlist2)
+```
+
+```{r}
+KEGG_0to4 <- gseKEGG(geneList = RT0to4_entrezlist2 ,
+      organism = "hsa",
+      keyType = "kegg",
+      exponent = 1,
+      minGSSize = 10,
+      maxGSSize = 500,
+      pvalueCutoff = 0.05,
+      pAdjustMethod = "BH",
+      verbose = TRUE,
+      seed = FALSE,
+   )
+
+KEGG_0to4@result %>% 
+  arrange(pvalue) %>% 
+  head(8)
+
+```
+
+
+```{r}
+dotplot(KEGG_0to4,
+        x = "NES",
+  color = "p.adjust",
+  showCategory = 20,
+  size = NULL,
+  split = NULL,
+  font.size = 12,
+  title = "",
+  orderBy = "x",
+  label_format = 30
+)
+```
+
+```{r}
+browseKEGG(KEGG_0to4, 'hsa04630')
+```
+
+```{r}
+library("pathview")
+hsa04060_0to4 <- pathview(gene.data  = RT0to4_entrezlist2,
+                     pathway.id = "hsa04060",
+                     species    = "hsa",
+                     limit      = list(gene=max(abs(RT0to4_entrezlist2)), cpd=1))
+```
+
+```{r}
+KEGG_0to4a <- setReadable(KEGG_0to4, 'org.Hs.eg.db', 'ENTREZID')
+```
+
+
+
+##RT4-8
+
+```{r}
+# we want the log2 fold change 
+RT4to8_entrezlist1 <-  subset(GSEA_RT4to8_anno, select=c(5,4))
+RT4to8_entrezlist1 <- na.omit(RT4to8_entrezlist1)
+RT4to8_entrezlist2 <- RT4to8_entrezlist1$log2FC
+names(RT4to8_entrezlist2) <- RT4to8_entrezlist1$ENTREZID
+RT4to8_entrezlist2 = sort(RT4to8_entrezlist2, decreasing = TRUE)
+head(RT4to8_entrezlist2)
+```
+
+```{r}
+KEGG_4to8 <- gseKEGG(geneList = RT4to8_entrezlist2 ,
+      organism = "hsa",
+      keyType = "kegg",
+      exponent = 1,
+      minGSSize = 10,
+      maxGSSize = 500,
+      pvalueCutoff = 0.05,
+      pAdjustMethod = "BH",
+      verbose = TRUE,
+      seed = FALSE,
+   )
+
+KEGG_4to8@result %>% 
+  arrange(pvalue) %>% 
+  head(8)
+```
+
+```{r}
+KEGG_4to8a <- setReadable(KEGG_4to8, 'org.Hs.eg.db', 'ENTREZID')
+```
+
+
+##RT8-16
+```{r}
+# we want the log2 fold change 
+RT8to16_entrezlist1 <-  subset(GSEA_RT8to16_anno, select=c(5,4))
+RT8to16_entrezlist1 <- na.omit(RT8to16_entrezlist1)
+RT8to16_entrezlist2 <- RT8to16_entrezlist1$log2FC
+names(RT8to16_entrezlist2) <- RT8to16_entrezlist1$ENTREZID
+RT8to16_entrezlist2 = sort(RT8to16_entrezlist2, decreasing = TRUE)
+head(RT8to16_entrezlist2)
+```
+
+
+```{r}
+KEGG_8to16 <- gseKEGG(geneList = RT8to16_entrezlist2 ,
+      organism = "hsa",
+      keyType = "kegg",
+      exponent = 1,
+      minGSSize = 10,
+      maxGSSize = 500,
+      pvalueCutoff = 0.05,
+      pAdjustMethod = "BH",
+      verbose = TRUE,
+      seed = FALSE,
+   )
+
+KEGG_8to16@result %>% 
+  arrange(pvalue) %>% 
+  head(8)
+```
+
+```{r}
+KEGG_8to16a <- setReadable(KEGG_8to16, 'org.Hs.eg.db', 'ENTREZID')
+```
+
+
+##RT16-20
+```{r}
+# we want the log2 fold change 
+RT16to20_entrezlist1 <-  subset(GSEA_RT16to20_anno, select=c(5,4))
+RT16to20_entrezlist1 <- na.omit(RT16to20_entrezlist1)
+RT16to20_entrezlist2 <- RT16to20_entrezlist1$log2FC
+names(RT16to20_entrezlist2) <- RT16to20_entrezlist1$ENTREZID
+RT16to20_entrezlist2 = sort(RT16to20_entrezlist2, decreasing = TRUE)
+head(RT16to20_entrezlist2)
+```
+
+
+```{r}
+KEGG_16to20 <- gseKEGG(geneList = RT16to20_entrezlist2 ,
+      organism = "hsa",
+      keyType = "kegg",
+      exponent = 1,
+      minGSSize = 10,
+      maxGSSize = 500,
+      pvalueCutoff = 0.05,
+      pAdjustMethod = "BH",
+      verbose = TRUE,
+      seed = FALSE,
+   )
+
+KEGG_16to20@result %>% 
+  arrange(pvalue) %>% 
+  head(8)
+```
+
+```{r}
+KEGG_16to20a <- setReadable(KEGG_16to20, 'org.Hs.eg.db', 'ENTREZID')
+```
+
+
+##RT20-28
+
+```{r}
+# we want the log2 fold change 
+RT20to28_entrezlist1 <-  subset(GSEA_RT20to28_anno, select=c(5,4))
+RT20to28_entrezlist1 <- na.omit(RT20to28_entrezlist1)
+RT20to28_entrezlist2 <- RT20to28_entrezlist1$log2FC
+names(RT20to28_entrezlist2) <- RT20to28_entrezlist1$ENTREZID
+RT20to28_entrezlist2 = sort(RT20to28_entrezlist2, decreasing = TRUE)
+head(RT20to28_entrezlist2)
+```
+
+
+```{r}
+KEGG_20to28 <- gseKEGG(geneList = RT20to28_entrezlist2 ,
+      organism = "hsa",
+      keyType = "kegg",
+      exponent = 1,
+      minGSSize = 10,
+      maxGSSize = 500,
+      pvalueCutoff = 0.05,
+      pAdjustMethod = "BH",
+      verbose = TRUE,
+      seed = FALSE,
+   )
+
+KEGG_20to28@result %>% 
+  arrange(pvalue) %>% 
+  head(8)
+```
+
+```{r}
+KEGG_20to28a <- setReadable(KEGG_20to28, 'org.Hs.eg.db', 'ENTREZID')
+```
+
+
+##ET16-RT20
+```{r}
+# we want the log2 fold change 
+ET16toRT20_entrezlist1 <-  subset(GSEA_ET16toRT20_anno, select=c(5,4))
+ET16toRT20_entrezlist1 <- na.omit(ET16toRT20_entrezlist1)
+ET16toRT20_entrezlist2 <- ET16toRT20_entrezlist1$log2FC
+names(ET16toRT20_entrezlist2) <- ET16toRT20_entrezlist1$ENTREZID
+ET16toRT20_entrezlist2 = sort(ET16toRT20_entrezlist2, decreasing = TRUE)
+head(ET16toRT20_entrezlist2)
+```
+
+```{r}
+KEGG_ET16toRT20 <- gseKEGG(geneList = ET16toRT20_entrezlist2 ,
+      organism = "hsa",
+      keyType = "kegg",
+      exponent = 1,
+      minGSSize = 10,
+      maxGSSize = 500,
+      pvalueCutoff = 0.05,
+      pAdjustMethod = "BH",
+      verbose = TRUE,
+      seed = FALSE,
+   )
+
+KEGG_ET16toRT20@result %>% 
+  arrange(pvalue) %>% 
+  head(8)
+```
+
+```{r}
+KEGG_ET16toRT20a <- setReadable(KEGG_ET16toRT20, 'org.Hs.eg.db', 'ENTREZID')
+```
+
+
+##ET16-RT28
+```{r}
+# we want the log2 fold change 
+ET16toRT28_entrezlist1 <-  subset(GSEA_ET16toRT28_anno, select=c(5,4))
+ET16toRT28_entrezlist1 <- na.omit(ET16toRT28_entrezlist1)
+ET16toRT28_entrezlist2 <- ET16toRT28_entrezlist1$log2FC
+names(ET16toRT28_entrezlist2) <- ET16toRT28_entrezlist1$ENTREZID
+ET16toRT28_entrezlist2 = sort(ET16toRT28_entrezlist2, decreasing = TRUE)
+head(ET16toRT28_entrezlist2)
+```
+
+```{r}
+KEGG_ET16toRT28 <- gseKEGG(geneList = ET16toRT28_entrezlist2 ,
+      organism = "hsa",
+      keyType = "kegg",
+      exponent = 1,
+      minGSSize = 10,
+      maxGSSize = 500,
+      pvalueCutoff = 0.05,
+      pAdjustMethod = "BH",
+      verbose = TRUE,
+      seed = FALSE,
+   )
+
+KEGG_ET16toRT28@result %>% 
+  arrange(pvalue) %>% 
+  head(8)
+```
+
+```{r}
+KEGG_ET16toRT28a <- setReadable(KEGG_ET16toRT28, 'org.Hs.eg.db', 'ENTREZID')
+```
+
+###Merge and Visualise gsea KEGG results for RT
+```{r}
+RTKEGGlist <- list("RT_4dpa"=KEGG_0to4a, "RT_8dpa"=KEGG_4to8a,"RT_16dpa"= KEGG_8to16a, "RT_20dpa"= KEGG_16to20a, "RT_28dpa"= KEGG_20to28a)
+RT_gsea_KEGGmerge <- merge_result(enrichResultList = RTKEGGlist)
+```
+
+
+```{r}
+RT_gsea_KEGGmerge_plot <- dotplot(RT_gsea_KEGGmerge,
+                      x = "NES",
+                      color = "p.adjust",
+                      showCategory = 7,
+                      size = NULL,
+                      split = NULL,
+                      font.size = 11,
+                      title = "KEGG Pathways Enrichment",
+                      label_format = 50
+                      )+ facet_grid(~Cluster) 
+RT_gsea_KEGGmerge_plot
+```
+
+
+```{r}
+######################################################################
+##----->> save plot
+png(filename="G:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/heatmap/RT_gsea_KEGGmerge_plot.png", 
+    width = pmax(25,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+RT_gsea_KEGGmerge_plot
+dev.off()
+```
+
+###Merge and Visualise gsea KEGG results for ET-RT
+```{r}
+ETKEGGlist <- list("ET16dpo-RT20dpa"=KEGG_ET16toRT20a, "ET16dpo-RT28dpa"=KEGG_ET16toRT28a)
+ET_gsea_KEGmerge <- merge_result(enrichResultList = ETKEGGlist)
+```
+
+
+```{r}
+ET_gsea_KEGmerge_plot <- dotplot(ET_gsea_KEGmerge,
+                      x = "NES",
+                      color = "p.adjust",
+                      showCategory = 10,
+                      size = NULL,
+                      split = NULL,
+                      font.size = 11,
+                      title = "GO Enrichment: Biological Process",
+                      label_format = 50
+                      )+ facet_grid(~Cluster) 
+ET_gsea_KEGmerge_plot
+```
+
+
+```{r}
+######################################################################
+##----->> save plot
+png(filename="D:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/heatmap/ET_gsea_KEGmerge_plot.png", 
+    width = pmax(18,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+ET_gsea_KEGmerge_plot
+dev.off()
+```
+
+```{r}
+RTKEGGlist <- list("Toll-like receptor signaling pathway",
+"Hedgehog signaling pathway",
+#"ErbB signaling pathway",
+"TNF signaling pathway",
+"Axon guidance",
+"Osteoclast differentiation",
+"Wnt signaling pathway",
+"Signaling pathways regulating pluripotency of stem cells",
+"IL-17 signaling pathway",
+"Hematopoietic cell lineage",
+"Melanogenesis",
+"Breast cancer",
+"JAK-STAT signaling pathway",
+"Basal cell carcinoma",
+"Pathways in cancer",
+"PI3K-Akt signaling pathway",
+"Cardiac muscle contraction",
+"NF-kappa B signaling pathway",
+"Notch signaling pathway",
+"Steroid biosynthesis",
+"Complement and coagulation cascades",
+"ECM-receptor interaction")
+  
+```
+
+```{r}
+RT_gsea_KEGGmerge_plot2 <- dotplot(RT_gsea_KEGGmerge,
+                      x = "NES",
+                      color = "p.adjust",
+                      showCategory = RTKEGGlist,
+                      size = NULL,
+                      split = NULL,
+                      font.size = 11,
+                      title = "KEGG Pathways Enrichment",
+                      label_format = 50
+                      )+ facet_grid(~Cluster) 
+RT_gsea_KEGGmerge_plot2
+
+```
+
+```{r}
+######################################################################
+##----->> save plot
+png(filename="D:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/figures/RT_gsea_KEGGmerge_plot2.png", 
+    width = pmax(25,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+RT_gsea_KEGGmerge_plot2
+dev.off()
+```
+
+```{r}
+ET_gsea_KEGmerge_plot2 <- dotplot(ET_gsea_KEGmerge,
+                      x = "NES",
+                      color = "p.adjust",
+                      showCategory = RTKEGGlist,
+                      size = NULL,
+                      split = NULL,
+                      font.size = 11,
+                      title = "KEGG Pathways Enrichment",
+                      label_format = 50
+                      )+ facet_grid(~Cluster) 
+ET_gsea_KEGmerge_plot2
+```
+
+```{r}
+######################################################################
+##----->> save plot
+png(filename="D:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/figures/ET_gsea_KEGmerge_plot2.png", 
+    width = pmax(17,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+ET_gsea_KEGmerge_plot2
+dev.off()
+```
+
+
+```{r}
+RT_gsea_KEGGmerge_plot2
+```
+
+
+```{r}
+RTKEGG_1 <- data.frame(RT_gsea_KEGGmerge@compareClusterResult)
+RTKEGG_2 <- subset(RTKEGG_1, select=c(2,3,4))
+RTKEGG_2 <- unique(RTKEGG_2)
+RTKEGG_2
+```
+
+
+```{r}
+ETKEGG_1 <- data.frame(ET_gsea_KEGmerge@compareClusterResult)
+ETKEGG_2 <- subset(ETKEGG_1, select=c(2,3,4))
+ETKEGG_2 <- unique(ETKEGG_2)
+ETKEGG_2
+```
+
+```{r}
+RT_gsea_KEGGmerge <- pairwise_termsim(RT_gsea_KEGGmerge)                     
+emapplot(RT_gsea_KEGGmerge, pie="count", cex_category=1.5, layout="kk")
+```
+
+
+```{r}
+browseKEGG(KEGG_8to16, 'hsa04550')
+```
+
+
+```{r}
+library("pathview")
+hsa05200.RT4 <- pathview(gene.data  = RT0to4_entrezlist2,
+                     pathway.id = "hsa05200",
+                     species    = "hsa",
+                     limit      = list(gene=max(abs(RT0to4_entrezlist2)), cpd=1))
+```
+
+
+
+
+```{r}
+write.csv(RTKEGG_1, "G:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/GO/RT_gseaKEGG1.csv", row.names = TRUE)
+write.csv(RTKEGG_2, "G:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/GO/RT_gseaKEGG2.csv", row.names = TRUE)
+write.csv(ETKEGG_1, "G:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/GO/ET_gseaKEGG1.csv", row.names = TRUE)
+write.csv(ETKEGG_2, "G:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/GO/ET_gseaKEGG2.csv", row.names = TRUE)
+```
+
+```{r}
+RT_gsea_KEGGmerge_dataprint <- RT_gsea_KEGGmerge_plot2$data %>% arrange(pvalue)
+ET_gsea_KEGGmerge_dataprint <- ET_gsea_KEGmerge_plot2$data %>% arrange(pvalue)
+```
+
+```{r}
+write.xlsx(RT_gsea_KEGGmerge_dataprint, "D:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/GO/RT_gsea_KEGGmerge_dataprint.xlsx", rowNames = TRUE)
+write.xlsx(ET_gsea_KEGGmerge_dataprint, "D:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/GO/ET_gsea_KEGGmerge_dataprint.xlsx", rowNames = TRUE)
+```
+
+
+```{r}
+RT_gsea_KEGGmerge_cnetplot <- cnetplot(RT_gsea_KEGGmerge, 
+                                        showCategory=RTKEGGlist ,
+                                     node_label="category", 
+                                     cex_category=4,
+                                     legend_n=3,
+                                     cex_gene=1.5,
+                                     cex_label_category = 2.5) 
+RT_gsea_KEGGmerge_cnetplot
+```
+
+```{r}
+ET_gsea_KEGGmerge_cnetplot <- cnetplot(ET_gsea_KEGmerge, 
+                                       showCategory=RTKEGGlist ,
+                                     node_label="category", 
+                                     cex_category=4,
+                                     legend_n=3,
+                                     cex_gene=1.5,
+                                     cex_label_category = 2.5) 
+ET_gsea_KEGGmerge_cnetplot
+```
+```{r}
+RT_gsea_KEGGmerge <- pairwise_termsim(RT_gsea_KEGGmerge)
+ET_gsea_KEGmerge <- pairwise_termsim(ET_gsea_KEGmerge)
+```
+
+
+
+```{r}
+RT_gsea_KEGGmerge_emap <- emapplot(RT_gsea_KEGGmerge, 
+                                 showCategory=20 ,
+                                 pie="count", 
+                                 legend_n=3, 
+                                 cex_category=3,
+                                 cex_label_category=2,
+                                 cex_line=0.5,
+                                 #layout="kk"
+                                 ) 
+RT_gsea_KEGGmerge_emap
+```
+
+```{r}
+ET_gsea_KEGGmerge_emap <- emapplot(ET_gsea_KEGmerge, 
+                                 showCategory=30 ,
+                                 pie="count", 
+                                 legend_n=3, 
+                                 cex_category=3,
+                                 cex_label_category=2,
+                                 cex_line=0.5,
+                                 #layout="kk"
+                                 ) 
+ET_gsea_KEGGmerge_emap
+```
+
+
+```{r}
+png(filename="D:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/figures/RT_gsea_KEGGmerge_cnetplot.png", 
+    width = pmax(40,1)/2.54,height = 30/2.54, units = 'in' ,res = 300)
+RT_gsea_KEGGmerge_cnetplot
+dev.off()
+
+png(filename="D:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/figures/ET_gsea_KEGGmerge_cnetplot.png", 
+    width = pmax(40,1)/2.54,height = 30/2.54, units = 'in' ,res = 300)
+ET_gsea_KEGGmerge_cnetplot
+dev.off()
+
+png(filename="D:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/figures/RT_gsea_KEGGmerge_emap.png", 
+    width = pmax(40,1)/2.54,height = 30/2.54, units = 'in' ,res = 300)
+RT_gsea_KEGGmerge_emap
+dev.off()
+
+png(filename="D:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/figures/ET_gsea_KEGGmerge_emap.png", 
+    width = pmax(40,1)/2.54,height = 30/2.54, units = 'in' ,res = 300)
+ET_gsea_KEGGmerge_emap
+dev.off()
+
+```
+
+
+#### GSEA for REactome Pathway
+
+##RT0-4
+```{r}
+React_0to4 <- gsePathway(geneList = RT0to4_entrezlist2 ,
+      organism = "human",
+      exponent = 1,
+      minGSSize = 10,
+      maxGSSize = 500,
+      pvalueCutoff = 0.05,
+      pAdjustMethod = "BH",
+   )
+
+React_0to4@result %>% 
+  arrange(pvalue) %>% 
+  head(20)
+```
+
+
+```{r}
+dotplot(React_0to4,
+        x = "NES",
+  color = "p.adjust",
+  showCategory = 20,
+  size = NULL,
+  split = NULL,
+  font.size = 12,
+  title = "",
+  orderBy = "x",
+  label_format = 30
+)
+```
+
+```{r}
+React_0to4a <- setReadable(React_0to4, 'org.Hs.eg.db', 'ENTREZID')
+```
+
+##RT4-8
+```{r}
+React_4to8 <- gsePathway(geneList = RT4to8_entrezlist2 ,
+      organism = "human",
+      exponent = 1,
+      minGSSize = 10,
+      maxGSSize = 500,
+      pvalueCutoff = 0.05,
+      pAdjustMethod = "BH",
+   )
+
+React_4to8@result %>% 
+  arrange(pvalue) %>% 
+  head(20)
+```
+
+
+```{r}
+dotplot(React_4to8,
+        x = "NES",
+  color = "p.adjust",
+  showCategory = 20,
+  size = NULL,
+  split = NULL,
+  font.size = 12,
+  title = "",
+  orderBy = "x",
+  label_format = 30
+)
+```
+
+```{r}
+React_4to8a <- setReadable(React_4to8, 'org.Hs.eg.db', 'ENTREZID')
+```
+
+
+##RT8-16
+```{r}
+React_8to16 <- gsePathway(geneList = RT8to16_entrezlist2 ,
+      organism = "human",
+      exponent = 1,
+      minGSSize = 10,
+      maxGSSize = 500,
+      pvalueCutoff = 0.05,
+      pAdjustMethod = "BH",
+   )
+
+React_8to16@result %>% 
+  arrange(pvalue) %>% 
+  head(20)
+```
+
+```{r}
+React_8to16a <- setReadable(React_8to16, 'org.Hs.eg.db', 'ENTREZID')
+```
+
+
+##RT16-20
+```{r}
+React_16to20 <- gsePathway(geneList = RT16to20_entrezlist2 ,
+      organism = "human",
+      exponent = 1,
+      minGSSize = 10,
+      maxGSSize = 500,
+      pvalueCutoff = 0.05,
+      pAdjustMethod = "BH",
+   )
+
+React_16to20@result %>% 
+  arrange(pvalue) %>% 
+  head(20)
+```
+
+```{r}
+React_16to20a <- setReadable(React_16to20, 'org.Hs.eg.db', 'ENTREZID')
+```
+
+
+##RT20-28
+```{r}
+React_20to28 <- gsePathway(geneList = RT20to28_entrezlist2 ,
+      organism = "human",
+      exponent = 1,
+      minGSSize = 10,
+      maxGSSize = 500,
+      pvalueCutoff = 0.05,
+      pAdjustMethod = "BH",
+   )
+
+React_20to28@result %>% 
+  arrange(pvalue) %>% 
+  head(20)
+```
+
+```{r}
+React_20to28a <- setReadable(React_20to28, 'org.Hs.eg.db', 'ENTREZID')
+```
+
+
+##ET16-RT20
+```{r}
+React_ET16toRT20 <- gsePathway(geneList = ET16toRT20_entrezlist2 ,
+      organism = "human",
+      exponent = 1,
+      minGSSize = 10,
+      maxGSSize = 500,
+      pvalueCutoff = 0.05,
+      pAdjustMethod = "BH",
+   )
+
+React_ET16toRT20@result %>% 
+  arrange(pvalue) %>% 
+  head(20)
+```
+
+```{r}
+React_ET16toRT20a <- setReadable(React_ET16toRT20, 'org.Hs.eg.db', 'ENTREZID')
+```
+
+
+##ET16-RT28
+```{r}
+React_ET16toRT28 <- gsePathway(geneList = ET16toRT28_entrezlist2 ,
+      organism = "human",
+      exponent = 1,
+      minGSSize = 10,
+      maxGSSize = 500,
+      pvalueCutoff = 0.05,
+      pAdjustMethod = "BH",
+   )
+
+React_ET16toRT28@result %>% 
+  arrange(pvalue) %>% 
+  head(20)
+```
+
+```{r}
+React_ET16toRT28a <- setReadable(React_ET16toRT28, 'org.Hs.eg.db', 'ENTREZID')
+```
+
+###Merge and Visualise gsea Reactome results for RT
+```{r}
+RTReactlist <- list("RT_4dpa"=React_0to4a, "RT_8dpa"=React_4to8a,"RT_16dpa"= React_8to16a, "RT_20dpa"= React_16to20a, "RT_28dpa"= React_20to28a)
+RT_gsea_Reactmerge <- merge_result(enrichResultList = RTReactlist)
+```
+
+
+```{r}
+RT_gsea_Reactmerge_plot <- dotplot(RT_gsea_Reactmerge,
+                      x = "NES",
+                      color = "p.adjust",
+                      showCategory = 5,
+                      size = NULL,
+                      split = NULL,
+                      font.size = 11,
+                      title = "Reactome Pathways Enrichment",
+                      label_format = 50
+                      )+ facet_grid(~Cluster) 
+RT_gsea_Reactmerge_plot
+```
+
+```{r}
+RT_gsea_Reactmerge <- pairwise_termsim(RT_gsea_Reactmerge)
+RT_gsea_Reactmerge_emap <- emapplot(RT_gsea_Reactmerge, legend_n=2) 
+RT_gsea_Reactmerge_emap
+```
+
+```{r}
+RT_gsea_Reactmerge_cnet <- cnetplot(RT_gsea_Reactmerge, legend_n=2) 
+RT_gsea_Reactmerge_cnet
+```
+
+```{r}
+#####################################################################
+##----->> save plot
+png(filename="G:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/figures/RT_gsea_Reactome_cnetplot.png", 
+    width = pmax(20,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+RT_gsea_Reactmerge_cnet
+dev.off()
+```
+
+
+```{r}
+RTREACTlist <- list("Striated Muscle Contraction",
+"Interleukin-10 signaling",
+"Myogenesis",
+"Cytokine Signaling in Immune system",
+"Extracellular matrix organization",
+"MET promotes cell motility",
+"Collagen formation",
+"Keratinization",
+"Axon guidance",
+"Nervous system development",
+"Hemostasis",
+"RUNX2 regulates bone development",
+"Neuronal System",
+"Negative regulation of NOTCH4 signaling",
+"Signaling by ROBO receptors",
+"Cell recruitment (pro-inflammatory response)",
+"Gluconeogenesis",
+"Regulation of mitotic cell cycle",
+"Mitotic Prometaphase",
+"Signaling by VEGF",
+"Muscle contraction",
+"Regulation of RUNX1 Expression and Activity",
+"Organelle biogenesis and maintenance",
+"Extension of Telomeres",
+"Ephrin signaling",
+"Activation of HOX genes during differentiation",
+"Signaling by NOTCH1",
+"Neutrophil degranulation")
+```
+
+
+```{r}
+RT_gsea_Reactmerge_plot2 <- dotplot(RT_gsea_Reactmerge,
+                      x = "NES",
+                      color = "p.adjust",
+                      showCategory = RTREACTlist,
+                      size = NULL,
+                      split = NULL,
+                      font.size = 11,
+                      title = "Reactome Pathways Enrichment",
+                      label_format = 50
+                      )+ facet_grid(~Cluster) 
+RT_gsea_Reactmerge_plot2
+```
+
+
+###Merge and Visualise gsea results for ET-RT
+```{r}
+ETReactlist <- list("ET16dpo-RT20dpa"=React_ET16toRT20a, "ET16dpo-RT28dpa"=React_ET16toRT28a)
+ET_gsea_Reactmerge <- merge_result(enrichResultList = ETReactlist)
+```
+
+
+```{r}
+ET_gsea_Reactmerge_plot <- dotplot(ET_gsea_Reactmerge,
+                      x = "NES",
+                      color = "p.adjust",
+                      showCategory = 15,
+                      size = NULL,
+                      split = NULL,
+                      font.size = 11,
+                      title = "Reactome Pathways Enrichment",
+                      label_format = 50
+                      )+ facet_grid(~Cluster) 
+ET_gsea_Reactmerge_plot
+```
+
+```{r}
+ET_gsea_Reactmerge_plot2 <- dotplot(ET_gsea_Reactmerge,
+                      x = "NES",
+                      color = "p.adjust",
+                      showCategory = RTREACTlist,
+                      size = NULL,
+                      split = NULL,
+                      font.size = 11,
+                      title = "Reactome Pathways Enrichment",
+                      label_format = 50
+                      )+ facet_grid(~Cluster) 
+ET_gsea_Reactmerge_plot2
+```
+
+
+```{r}
+######################################################################
+##----->> save plot
+png(filename="D:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/figures/RT_gsea_Reactmerge_plot.png", 
+    width = pmax(25,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+RT_gsea_Reactmerge_plot
+dev.off()
+png(filename="D:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/figures/ET_gsea_Reactmerge_plot.png", 
+    width = pmax(17,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+ET_gsea_Reactmerge_plot
+dev.off()
+
+```
+
+```{r}
+######################################################################
+##----->> save plot
+png(filename="D:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/figures/RT_gsea_Reactmerge_plot2.png", 
+    width = pmax(25,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+RT_gsea_Reactmerge_plot2
+dev.off()
+png(filename="D:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/figures/ET_gsea_Reactmerge_plot2.png", 
+    width = pmax(17,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+ET_gsea_Reactmerge_plot2
+dev.off()
+```
+
+
+```{r}
+ETReact_1 <- data.frame(ET_gsea_Reactmerge@compareClusterResult)
+ETReact_2 <- subset(ETReact_1, select=c(2,3,4))
+ETReact_2 <- unique(ETReact_2)
+ETReact_2
+```
+
+```{r}
+RTReact_1 <- data.frame(RT_gsea_Reactmerge@compareClusterResult)
+RTReact_2 <- subset(RTReact_1, select=c(2,3,4))
+RTReact_2 <- unique(RTReact_2)
+RTReact_2
+```
+
+```{r}
+write.csv(RTReact_1, "D:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/GO/RT_gseaREACT1.csv", row.names = TRUE)
+write.csv(RTReact_2, "D:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/GO/RT_gseaREACT2.csv", row.names = TRUE)
+write.csv(ETReact_1, "D:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/GO/ET_gseaREACT1.csv", row.names = TRUE)
+write.csv(ETReact_2, "D:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/GO/ET_gseaREACT2.csv", row.names = TRUE)
+```
+
+```{r}
+RT_gsea_Reactmerge_dataprint <- RT_gsea_Reactmerge_plot2$data %>% arrange(pvalue)
+ET_gsea_Reactmerge_dataprint <- ET_gsea_Reactmerge_plot2$data %>% arrange(pvalue)
+```
+
+```{r}
+write.xlsx(RT_gsea_Reactmerge_dataprint, "D:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/GO/RT_gsea_Reactmerge_dataprint.xlsx", rowNames = TRUE)
+write.xlsx(ET_gsea_Reactmerge_dataprint, "D:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/GO/ET_gsea_Reactmerge_dataprint.xlsx", rowNames = TRUE)
+```
+
+
+```{r}
+RT_gsea_Reactmerge_cnetplot <- cnetplot(RT_gsea_Reactmerge, 
+                                          showCategory=RTREACTlist ,
+                                     node_label="category", 
+                                     cex_category=4,
+                                     legend_n=3,
+                                     cex_gene=1.5,
+                                     cex_label_category = 2.5)  
+RT_gsea_Reactmerge_cnetplot
+```
+```{r}
+ET_gsea_Reactmerge_cnetplot <- cnetplot(ET_gsea_Reactmerge, 
+                                         showCategory=RTREACTlist ,
+                                     node_label="category", 
+                                     cex_category=4,
+                                     legend_n=3,
+                                     cex_gene=1.5,
+                                     cex_label_category = 2.5)
+ET_gsea_Reactmerge_cnetplot
+```
+
+```{r}
+RT_gsea_Reactmerge <- pairwise_termsim(RT_gsea_Reactmerge)
+ET_gsea_Reactmerge <- pairwise_termsim(ET_gsea_Reactmerge)
+```
+
+
+
+```{r}
+RT_gsea_Reactmerge_emap <- emapplot(RT_gsea_Reactmerge, 
+                                 showCategory=15 ,
+                                 pie="count", 
+                                 legend_n=3, 
+                                 cex_category=2.5,
+                                 cex_label_category=2,
+                                 cex_line=0.5,
+                                 #layout="kk"
+                                 ) 
+RT_gsea_Reactmerge_emap
+```
+
+```{r}
+ET_gsea_Reactmerge_emap <- emapplot(ET_gsea_Reactmerge, 
+                                 showCategory=30 ,
+                                 pie="count", 
+                                 legend_n=3, 
+                                 cex_category=2.5,
+                                 cex_label_category=2,
+                                 cex_line=0.5,
+                                 #layout="kk"
+                                 ) 
+ET_gsea_Reactmerge_emap
+```
+
+
+```{r}
+png(filename="D:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/figures/RT_gsea_Reactmerge_cnetplot.png", 
+    width = pmax(40,1)/2.54,height = 30/2.54, units = 'in' ,res = 300)
+RT_gsea_Reactmerge_cnetplot
+dev.off()
+
+png(filename="D:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/figures/ET_gsea_Reactmerge_cnetplot.png", 
+    width = pmax(40,1)/2.54,height = 30/2.54, units = 'in' ,res = 300)
+ET_gsea_Reactmerge_cnetplot
+dev.off()
+
+png(filename="D:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/figures/RT_gsea_Reactmerge_emap.png", 
+    width = pmax(40,1)/2.54,height = 30/2.54, units = 'in' ,res = 300)
+RT_gsea_Reactmerge_emap
+dev.off()
+
+png(filename="D:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/figures/ET_gsea_Reactmerge_emap.png", 
+    width = pmax(40,1)/2.54,height = 30/2.54, units = 'in' ,res = 300)
+ET_gsea_Reactmerge_emap
+dev.off()
+
+```
+
+```{r}
+png(filename="D:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/figures/RT_gsea_Reactmerge_emap.png", 
+    width = pmax(45,1)/2.54,height = 45/2.54, units = 'in' ,res = 300)
+RT_gsea_Reactmerge_emap
+dev.off()
+```
+
+
+##GSEA Wikipathway
+##RT0-4
+```{r}
+WP_0to4 <- gseWP(geneList = RT0to4_entrezlist2 ,
+      organism = "Homo sapiens",
+      exponent = 1,
+      minGSSize = 10,
+      maxGSSize = 500,
+      pvalueCutoff = 0.05,
+      pAdjustMethod = "BH",
+   )
+
+WP_0to4@result %>% 
+  arrange(pvalue) %>% 
+  head(8)
+```
+
+
+```{r}
+dotplot(WP_0to4,
+        x = "NES",
+  color = "p.adjust",
+  showCategory = 20,
+  size = NULL,
+  split = NULL,
+  font.size = 12,
+  title = "",
+  orderBy = "x",
+  label_format = 30
+)
+```
+
+

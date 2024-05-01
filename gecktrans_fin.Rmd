@@ -1,0 +1,2583 @@
+---
+title: "gecktrans_fin"
+author: "Luthfi Nurhidayat"
+date: "2022-11-22"
+output: html_document
+---
+
+
+
+```{r}
+#####################################################################################
+## Install packages of dependency
+###---> Install packages from Cran
+cran.package.list <- c("shiny","shinydashboard","rhandsontable","shinyFiles",
+                       "shinyjs","shinyBS","shinyhelper","shinyWidgets",
+                       "magrittr","DT","plotly","ggplot2","eulerr",
+                       "gridExtra","grid","fastcluster","rmarkdown","base64enc",
+                       "ggrepel","zoo","gtools")
+for(i in cran.package.list){
+   if(!(i %in% rownames(installed.packages()))){
+     message('Installing package: ',i)
+     install.packages(i,dependencies = T)
+   } else next
+}
+
+###---> Install packages from Bioconductor
+bioconductor.package.list <- c('tximport','edgeR','limma','RUVSeq',
+                               'ComplexHeatmap','rhdf5')
+for(i in bioconductor.package.list){
+  if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+  if(!(i %in% rownames(installed.packages()))){
+    message('Installing package: ',i)
+    BiocManager::install(i,dependencies = T)
+  } else next
+}
+```
+
+
+```{r}
+##################################################################################################
+## use devtools R package to install ThreeDRNAseq from Github
+###---> If devtools is not installed, please install
+if(!requireNamespace("devtools", quietly = TRUE))
+  install.packages('devtools',dependencies = TRUE)
+
+###---> Install ThreeDRNAseq
+if(!requireNamespace("ThreeDRNAseq", quietly = TRUE))
+  devtools::install_github('wyguo/ThreeDRNAseq')
+```
+
+
+
+
+### Load libraries and set working directories
+
+```{r}
+###---> ThreeDRNAseq R package
+library(ThreeDRNAseq)
+
+###---> Denpendency R package
+library(tximport)
+library(edgeR)
+library(limma)
+library(RUVSeq)
+library(eulerr)
+library(gridExtra)
+library(grid)
+library(ComplexHeatmap)
+library(ggplot2)
+library(ggrepel)
+
+```
+
+
+```{r}
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("DESeq2")
+BiocManager::install("apeglm")
+BiocManager::install("goseq")
+BiocManager::install("pathview")
+BiocManager::install("ensembldb")
+BiocManager::install("AnnotationHub")
+BiocManager::install("geneLenDataBase")
+BiocManager::install("clusterProfiler")
+BiocManager::install("topGO")
+BiocManager::install("KEGGREST")
+BiocManager::install("Rgraphviz")
+BiocManager::install("org.Gg.eg.db")
+BiocManager::install("org.Hs.eg.db")
+BiocManager::install("clusterProfiler", version = "3.17")
+BiocManager::install("pathview")
+BiocManager::install("enrichplot")
+```
+
+
+```{r}
+##load library
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(ggrepel)
+library(tximport)
+library(DESeq2)
+library(apeglm)
+library(BiocParallel)
+library(eulerr)
+library(limma)
+library(goseq)
+library(biomaRt)
+library(fdrtool)
+library(pathview)
+library(ensembldb)
+library(AnnotationHub)
+library(tibble)
+library(clusterProfiler)
+library(geneLenDataBase)
+library(topGO)
+library(KEGGREST)
+library(Rgraphviz)
+library(enrichplot)
+# we use ggplot2 to add x axis labels (ex: ridgeplot)
+library(ggplot2)
+library(WebGestaltR)
+library(fgsea)
+```
+
+```{r}
+options(stringsAsFactors=F)
+setwd("D:/RNAseqanalysis/gecktrans")
+```
+
+
+
+##Load 3Drnaseq intermediate data
+
+```{r}
+##load all genes data
+
+#load("G:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/3drnaseq/3D_fin_allgenes_output/data/intermediate_data.RData")
+#load("G:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/3drnaseq/3D_fin_allgenes_output/data/txi_genes.RData")
+
+##Load annotated genes data only
+load("G:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/3drnaseq/3D_fin_annoonly_output2/data/intermediate_data.RData")
+load("G:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/3drnaseq/3D_fin_annoonly_output2/data/txi_genes.RData")
+
+```
+
+
+##Quality check
+
+```{r}
+
+gene_matrix <- txi_genes$counts
+plot_library_data <- data.frame(sample = colnames(gene_matrix),
+                                librarySize = colSums(gene_matrix)/1e6,
+                                nullCounts = colSums(gene_matrix == 0)/nrow(gene_matrix),
+                                maxReads = colMaxs(gene_matrix, useNames = FALSE)/colSums(gene_matrix))
+
+plot_library_sizes <- ggplot(data = plot_library_data,
+                             aes(x = sample,
+                                 y = librarySize)) +
+  geom_col() +
+  theme_bw() +
+  ggtitle("Total Mapped Reads per Library") +
+  xlab("Sample") +
+  ylab("Million Reads") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+plot_null_counts <- ggplot(data = plot_library_data,
+                           aes(x = sample,
+                               y = nullCounts)) +
+  geom_col() +
+  theme_bw() +
+  ggtitle("Proportion of Null Count Genes per Library") +
+  xlab("Sample") +
+  ylab("Proportion of Null Count Genes") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+plot_highest_tx <- ggplot(data = plot_library_data,
+                          aes(x = sample,
+                              y = maxReads)) +
+  geom_col() +
+  theme_bw() +
+  ggtitle("Proportion of Reads from the Highest Expressed Gene") +
+  xlab("Sample") +
+  ylab("Proportion of Reads from the Gene") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+
+```
+
+
+
+```{r}
+rowsToKeep <- rowSums(gene_matrix) > 3
+plot_density <- log2(gene_matrix + 1) %>% 
+  as.data.frame() %>% 
+  pivot_longer(names_to = "SampleName", 
+               values_to = "logCounts", 
+               everything()) %>% 
+  ggplot(aes(x=logCounts, group = SampleName)) +
+  geom_density(aes(colour = SampleName)) +
+  labs(x = "log2(Counts)", title = "Raw count density")
+```
+
+
+##plot the data
+```{r}
+par(mfrow=c(2, 2))
+plot_library_sizes
+plot_null_counts
+plot_highest_tx
+plot_density
+par(mfrow=c(1, 1))
+```
+
+```{r}
+png(filename="H:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/QC/anngene_totalmappedreadperlib2.png", 
+    width = pmax(25,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+plot(plot_library_sizes)
+dev.off()
+
+png(filename="H:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/QC/anngene_nullcounts2.png", 
+    width = pmax(25,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+plot(plot_null_counts)
+dev.off()
+
+png(filename="H:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/QC/anngene_highexpress2.png", 
+    width = pmax(25,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+plot(plot_highest_tx)
+dev.off()
+
+png(filename="H:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/QC/anngene_read_density2.png", 
+    width = pmax(25,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+plot(plot_density)
+dev.off()
+
+
+```
+
+
+
+
+```{r}
+lcdist <- log2(gene_matrix + 1) %>% 
+  as.data.frame() %>% 
+  pivot_longer(names_to = "SampleName", 
+               values_to = "logCounts", 
+               everything()) %>% 
+  ggplot(aes(x=SampleName, y = logCounts, group = SampleName)) +
+  geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  geom_hline(yintercept = median(log2(gene_matrix + 1)))
+
+plot(lcdist)
+```
+
+```{r}
+png(filename="H:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/QC/anngene_logcounts2.png", 
+    width = pmax(25,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+plot(lcdist)
+dev.off()
+```
+
+
+##data generation
+```{r}
+################################################################################
+##----->> Meta table includes sample information, e.g. conditions, bio-reps, seq-reps, abundance paths, etc.
+metatable <- intermediate_data$samples_new
+##select the columns of experimental design
+factor_col <- c('Condition','Timeline')
+brep_col <- 'Replicate'
+quant_col <- 'quant.path'
+
+##arrange information in the metatable
+metatable$label <- as.vector(interaction(metatable[,factor_col]))
+metatable$sample.name <- as.vector(interaction(metatable[,c(factor_col,brep_col)]))
+
+##----->> Transcript-gene association mapping
+mapping <- intermediate_data$mapping
+mapping <- data.frame(as.matrix(mapping),stringsAsFactors = F)
+rownames(mapping) <- intermediate_data$mapping$TXNAME
+```
+
+
+```{r}
+summary(intermediate_data$genes_3D_stat$DE.stat)
+```
+
+```{r}
+summary(intermediate_data$genes_3D_stat$DE.stat.overalltest)
+```
+
+
+
+```{r}
+hist(intermediate_data$genes_3D_stat$DE.pval, breaks = 0:30/30,
+     col = "grey50", border = "white", xlab = "p-values",
+     main = "Histogram of p-values")
+```
+
+
+
+
+
+```{r}
+Gene_stat_RT0to4 <- intermediate_data$genes_3D_stat$DE.pval.list$`RT.X4-RT.X0`
+Gene_stat_RT4to8 <- intermediate_data$genes_3D_stat$DE.pval.list$`RT.X8-RT.X4`
+Gene_stat_RT8to16 <- intermediate_data$genes_3D_stat$DE.pval.list$`RT.X16-RT.X8`
+Gene_stat_RT16to20 <- intermediate_data$genes_3D_stat$DE.pval.list$`RT.X20-RT.X16`
+Gene_stat_RT20to28 <- intermediate_data$genes_3D_stat$DE.pval.list$`RT.X28-RT.X20`
+Gene_stat_ET16toRT20 <- intermediate_data$genes_3D_stat$DE.pval.list$`RT.X20-ET.X16`
+Gene_stat_ET16toRT28 <- intermediate_data$genes_3D_stat$DE.pval.list$`RT.X28-ET.X16`
+
+```
+
+
+##volcano per contrast
+
+```{r}
+
+top.n <- 50
+size <- 1
+col0 <- 'black'
+col1 <- 'red'
+idx <- 'DE genes'
+title.idx <- paste0("Volcano plot: DE genes (Low expression filtered; \nAdjusted p<",
+                      0.01,'; |LFC|>=',1,'; Labels: top ',
+                      top.n,' distance to (0,0))')
+
+names(title.idx) <- idx
+
+```
+
+
+```{r}
+DDD.stat <- intermediate_data$genes_3D_stat$DE.pval.list$`RT.X28-ET.X16`
+data2plot <- data.frame(target=row.names(DDD.stat),
+                            contrast="RT_28dpa vs ET_16dpa",
+                            x=as.numeric(DDD.stat$logFC),
+                            y=-log10(DDD.stat$adj.P.Val))
+    #data2plot$significance <- 'Not significant'
+    data2plot$significance[DDD.stat$adj.P.Val< 0.01 & 
+                             abs(as.numeric(DDD.stat$logFC))>=1] <- 'Significant'
+volcanoplot <- plotVolcano(data2plot = data2plot,xlab = 'logFC of genes',ylab='-log10(FDR)',
+                     title = title.idx,
+                    col0 = col0,col1 = col1,size = size,top.n = top.n)
+
+volcanoplot
+```
+
+
+
+```{r}
+######################################################################
+##----->> save plot
+png(filename="H:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/heatmap/volcanoplotRT28dpa-ET16dpo.png", 
+    width = pmax(25,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+volcanoplot
+dev.off()
+```
+
+
+##creating the heatmaps
+
+##load data
+```{r}
+library(readr)
+GeneTPM <- intermediate_data$genes_TPM
+toolkit_genes <- read_csv("H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/newquantanuki/toolkitgenesup.csv")
+hox_genes <- read_csv("H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/newquantanuki/hoxgenesup.csv")
+
+```
+
+##data filter
+```{r}
+GeneTPM <- data.frame(GeneTPM)
+#gene_id <- toolkit_genes
+#hox_id <- hox_genes
+#gene_id2 <- toolkit_genes_filt
+#gene_id3 <- toolkit_genes_clust1to4
+#gene_id4 <- toolkit_genes_clust5to10
+toolkitcounts <- filter (GeneTPM, row.names(GeneTPM)  %in% toolkit_genes$gene)
+write.csv(toolkitcounts, "H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/heatmap/toolkitgenesgeck_TPM2.csv", row.names = TRUE)
+hoxcounts <- filter (GeneTPM, row.names(GeneTPM)  %in% hox_genes$gene)
+write.csv(hoxcounts, "H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/heatmap/hoxgenesgeck_TPM2.csv", row.names = TRUE)
+
+```
+
+
+
+##creating heatmap for all significant DE genes
+
+```{r}
+targets <- unique(intermediate_data$DE_genes$target)
+data2heatmap <- txi_genes$abundance[targets,]
+column_title <- paste0(length(targets),'Significant DE genes of Embryonic and Regenerating Tail on Tokay Gecko')
+data2plot <- rowmean(x = t(data2heatmap),
+                     group = metatable$label,
+                     reorder = F)
+data2plot <- t(scale(data2plot))
+hc.dist <- dist(data2plot,method = "euclidean")
+hc <- fastcluster::hclust(hc.dist,method = "ward.D")
+clusters <- cutree(hc, k = 10)
+clusters <- reorderClusters(clusters = clusters,dat = data2plot)
+
+### save the target list in each cluster to result folder
+x <- split(names(clusters),clusters)
+x <- lapply(names(x),function(i){
+  data.frame(Clusters=i,Targets=x[[i]])
+})
+x <- do.call(rbind,x)
+colnames(x) <- c('Clusters','Targets')
+```
+
+```{r}
+data2plot2 <- subset(data2plot, select=c(7,1,2,3,4,5,6))
+```
+
+
+
+```{r}
+g <- Heatmap(as.matrix(data2plot2), name = 'logTPM', 
+             cluster_rows = FALSE,
+             clustering_method_rows='ward.D',
+             row_dend_reorder = T,
+             show_row_names = T, 
+             row_order = sort(rownames(as.matrix(data2plot2))),
+             show_column_names = ifelse(ncol(data2plot2)>10,F,T),
+             column_order = colnames(as.matrix(data2plot2)),
+             row_names_gp = gpar(fontsize = 3),
+             width = unit(5, "inch"), 
+             height = unit(200, "inch"),
+             cluster_columns = F,
+             split=clusters,
+             column_km = 1,
+             column_title= column_title)
+
+
+draw(g,column_title='Developmental Stages',column_title_side = "bottom")
+```
+
+
+```{r}
+### save to figure
+png('G:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/heatmap/SignificantDEgenes2.png',
+    width = pmax(25,1)/2.54,height = 550/2.54,
+    units = 'in',res = 300)
+draw(g,column_title='Developmental Stages',column_title_side = "bottom")
+dev.off()
+pdf(paste0('G:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/heatmap/SignificantDEgenes2.pdf'),
+   width = pmax(25,1)/2.54,height = 550/2.54)
+draw(g,column_title='Developmental Stages',column_title_side = "bottom")
+dev.off()
+```
+```{r}
+g2 <- Heatmap(as.matrix(data2plot2), name = 'z-score', 
+             cluster_rows = TRUE,
+             clustering_method_rows='ward.D',
+             row_dend_reorder = T,
+             show_row_names = FALSE, 
+             #row_order = sort(rownames(as.matrix(data2plot2))),
+             show_column_names = ifelse(ncol(data2plot2)>10,F,T),
+             column_order = colnames(as.matrix(data2plot2)),
+            # row_names_gp = gpar(fontsize = 3),
+             width = unit(7, "inch"), 
+             height = unit(14, "inch"),
+             cluster_columns = F,
+             split=clusters,
+             column_km = 1,
+             column_title= column_title)
+
+
+draw(g2,column_title='Developmental Stages',column_title_side = "bottom")
+```
+
+```{r}
+### save to figure
+png('G:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/figures/SignificantDEgenes3.png',
+    width = pmax(25,1)/2.54,height = 50/2.54,
+    units = 'in',res = 300)
+draw(g2,column_title='Developmental Stages',column_title_side = "bottom")
+dev.off()
+```
+
+
+
+
+
+##load toolkit gene as a dataframe and remove rows with all zero value
+```{r}
+toolkit_counts <- df2[which(rowSums(df2[,2:ncol(df2)]) > 0), ]
+##toolkit_counts2 <- data.frame(toolkit_counts[,2:ncol(toolkit_counts)])
+```
+
+
+
+```{r}
+tkgenes <- read_csv("H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/newquantanuki/toolkitgenesup2.csv")
+tkgenes <- unique(tkgenes)
+sigTKgenes <- filter (toolkitcounts, row.names(toolkitcounts)  %in% targets)
+```
+
+
+##create heatmap for significant toolkit genes
+```{r}
+##----->> DE genes
+targets <- row.names(sigTKgenes)
+data2heatmap <- sigTKgenes
+column_title <- paste0(length(targets),'Significant DE toolkit genes of Embryonic and Regenerating Tail on Tokay Gecko')
+data2plot <- rowmean(x = t(data2heatmap),
+                     group = metatable$label,
+                     reorder = F)
+data2plot <- t(scale(data2plot))
+data2plot <- data2plot[complete.cases(data2plot),]
+row.names(data2plot) <- targets
+hc.dist <- dist(data2plot,method = "euclidean")
+hc <- fastcluster::hclust(hc.dist,method = "ward.D")
+clusters <- cutree(hc, k = 10)
+clusters <- reorderClusters(clusters = clusters,dat = data2plot)
+
+```
+
+
+```{r}
+x <- split(names(clusters),clusters)
+x <- lapply(names(x),function(i){
+  data.frame(Clusters=i,Targets=x[[i]])
+})
+x <- do.call(rbind,x)
+colnames(x) <- c('Clusters','Targets')
+```
+
+
+```{r}
+data2plot2 <- subset(data2plot, select=c(7,1,2,3,4,5,6))
+```
+
+
+```{r}
+g <- Heatmap(as.matrix(data2plot), name = 'z-score', 
+             cluster_rows = FALSE,
+             clustering_method_rows='ward.D',
+             row_dend_reorder = T,
+             show_row_names = T, 
+             row_order = sort(rownames(as.matrix(data2plot))),
+             show_column_names = ifelse(ncol(data2plot)>10,F,T),
+             column_order = colnames(as.matrix(data2plot)),
+             row_names_gp = gpar(fontsize = 4),
+             width = unit(5, "inch"), 
+             height = unit(14, "inch"),
+             cluster_columns = F,
+             split=clusters,
+             column_km = 2,
+             column_title= column_title)
+
+
+draw(g,column_title='Developmental Stages',column_title_side = "bottom")
+```
+
+
+```{r}
+### save to figure
+png('H:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/heatmap/SigDETKgenes2.png',
+    width = pmax(25,1)/2.54,height = 60/2.54,
+    units = 'in',res = 300)
+draw(g,column_title='Developmental Stages',column_title_side = "bottom")
+dev.off()
+pdf(paste0('H:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/heatmap/SigDETKgenes2.pdf'),
+   width = pmax(25,1)/2.54,height = 60/2.54)
+draw(g,column_title='Developmental Stages',column_title_side = "bottom")
+dev.off()
+```
+
+```{r}
+g2 <- Heatmap(as.matrix(data2plot2), name = 'z-score', 
+             cluster_rows = FALSE,
+             clustering_method_rows='ward.D',
+             row_dend_reorder = T,
+             show_row_names = T, 
+             row_order = sort(rownames(as.matrix(data2plot2))),
+             show_column_names = ifelse(ncol(data2plot2)>10,F,T),
+             column_order = colnames(as.matrix(data2plot2)),
+             row_names_gp = gpar(fontsize = 4),
+             width = unit(7, "inch"), 
+             height = unit(14, "inch"),
+             cluster_columns = F,
+             split=clusters,
+             column_km = 1,
+             column_title= column_title)
+
+
+draw(g2,column_title='Developmental Stages',column_title_side = "bottom")
+```
+
+```{r}
+png('G:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/figures/SigDETKgenes2.png',
+    width = pmax(25,1)/2.54,height = 50/2.54,
+    units = 'in',res = 300)
+draw(g2,column_title='Developmental Stages',column_title_side = "bottom")
+dev.off()
+```
+
+
+##create heatmap for HOX genes
+```{r}
+##----->> DE genes
+targets <- row.names(hoxcounts)
+data2heatmap <- hoxcounts
+column_title <- paste0(length(targets),'HOX Genes of of Tail Regeneration on Tokay Gecko')
+data2plot <- rowmean(x = t(data2heatmap),
+                     group = metatable$label,
+                     reorder = F)
+data2plot <- t(scale(data2plot))
+data2plot <- data2plot[complete.cases(data2plot),]
+row.names(data2plot) <- targets
+hc.dist <- dist(data2plot,method = "euclidean")
+hc <- fastcluster::hclust(hc.dist,method = "ward.D")
+clusters <- cutree(hc, k = 10)
+clusters <- reorderClusters(clusters = clusters,dat = data2plot)
+
+```
+
+
+```{r}
+x <- split(names(clusters),clusters)
+x <- lapply(names(x),function(i){
+  data.frame(Clusters=i,Targets=x[[i]])
+})
+x <- do.call(rbind,x)
+colnames(x) <- c('Clusters','Targets')
+```
+
+
+
+```{r}
+g <- Heatmap(as.matrix(data2plot), name = 'logTPM', 
+             cluster_rows = FALSE,
+             clustering_method_rows='ward.D',
+             row_dend_reorder = T,
+             show_row_names = T, 
+             row_order = sort(rownames(as.matrix(data2plot))),
+             show_column_names = ifelse(ncol(data2plot)>10,F,T),
+             column_order = colnames(as.matrix(data2plot)),
+             row_names_gp = gpar(fontsize = 4),
+             width = unit(5, "inch"), 
+             height = unit(5, "inch"),
+             cluster_columns = F,
+             split=clusters,
+             column_km = 2,
+             column_title= column_title)
+
+
+draw(g,column_title='Developmental Stages',column_title_side = "bottom")
+```
+
+
+```{r}
+### save to figure
+png('H:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/heatmap/hoxgenes2.png',
+    width = pmax(25,1)/2.54,height = 25/2.54,
+    units = 'in',res = 300)
+draw(g,column_title='Developmental Stages',column_title_side = "bottom")
+dev.off()
+pdf(paste0('H:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/heatmap/hoxgenes2.pdf'),
+   width = pmax(25,1)/2.54,height = 25/2.54)
+draw(g,column_title='Developmental Stages',column_title_side = "bottom")
+dev.off()
+```
+
+###### The worked script for making the profile plot########
+
+##profileplot for hox genes family (significantly or not significantly expressed)
+
+```{r}
+library(readr)
+
+allrephox_data <- read_csv("H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/heatmap/hoxgenesgeck_TPM.csv")
+```
+
+```{r}
+
+colnames(allrephox_data)[1]  <- "genes"
+allrephox_data <- data.frame(allrephox_data)
+
+```
+
+
+```{r}
+library(reshape2)
+allrephox_long <- melt(allrephox_data, id = "genes", variable.name = "label")
+
+```
+
+
+```{r}
+library(dplyr)
+library(tidyr)
+
+#separate 'label' column into 'condition', 'timeline', 'replicate
+allrephox_long2 <- allrephox_long %>% separate(label, c('condition', 'timeline', 'replicate'))
+
+```
+
+
+```{r}
+##remove X in timeline and replicate 
+allrephox_long2$timeline<-gsub("X","",as.character(allrephox_long2$timeline))
+allrephox_long2$replicate<-gsub("X","",as.character(allrephox_long2$replicate))
+
+allrephox_long2
+```
+
+
+```{r}
+
+#calculate mean, SD, SE and 95% CI per timepoint for each group
+allrephox_stat <- allrephox_long2 %>%
+  group_by(genes, condition, timeline) %>%
+  summarise(
+    count = n(),
+    meanHOX = mean(value,na.rm=TRUE),
+    sdHOX = sd(value, na.rm=TRUE),
+    seHOX = sdHOX/sqrt(count),
+    ci95lower = meanHOX - seHOX*1.96,
+    ci95upper = meanHOX + seHOX*1.96
+  )
+
+
+```
+
+```{r}
+allrephox_stat$timeline <- factor(allrephox_stat$timeline,levels = c("0", "4", "7", "8", "16", "20", "22", "28"))
+
+library(hablar)
+allrephox2_stat <- allrephox_stat %>% 
+  convert(num(timeline))
+```
+
+
+
+```{r}
+#mean profiles in separate graphs
+allhoxplot <- ggplot(allrephox2_stat, aes(x=timeline, y=meanHOX, color=genes, alpha=0.05)) + 
+  geom_line() + 
+  geom_point() + 
+  facet_wrap(~condition, nrow = 1) +
+  labs(x="Days post-oviposition/post-autotomy", y = "Gene Expression (TPM)") + 
+   scale_y_continuous(breaks=seq(0,70,10), limits = c(0,70))+
+  scale_x_continuous(breaks=seq(0,28,2), limits = c(0,28)) +
+  #ylim(0, 75)+ 
+  theme_bw()
+
+allhoxplot
+```
+
+```{r}
+######################################################################
+##----->> save plot
+png(filename="H:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/heatmap/allhoxplot2.png", 
+    width = pmax(25,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+allhoxplot
+dev.off()
+```
+
+##load and filter stat for caudal hoxgenes only (hox*9-13)
+```{r}
+library(readr)
+caudhox_genes <- read_csv("H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/caudhoxgene.csv")
+caudhox_stat <- filter (allrephox_stat, genes  %in% caudhox_genes$gene)
+caudhox_stat$timeline <- factor(caudhox_stat$timeline,levels = c("0", "4", "8", "16", "20", "28"))
+
+```
+
+```{r}
+hoxgenefams <- read.csv("H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/hoxgenefams.txt", header=TRUE)
+```
+
+
+```{r}
+caudhox_stat <- filter (allrephox_stat, genes  %in% hoxgenefams$HOXA)
+caudhox_stat$timeline <- factor(caudhox_stat$timeline,levels = c("0", "4", "8", "16", "20", "28"))
+```
+
+
+```{r}
+library(hablar)
+caudhox2_stat <- caudhox_stat %>% 
+  convert(num(timeline))
+
+```
+
+```{r}
+str(caudhox2_stat$timeline)
+```
+
+
+
+```{r}
+#mean profiles caud hox in separate graphs
+caudhoxplot <- ggplot(caudhox2_stat, aes(x=timeline, y=meanHOX, color=genes)) + 
+  geom_line(linewidth=1) + 
+  geom_point(size = 2) + 
+  facet_wrap(~condition, nrow = 1) +
+  labs(x="Days post-oviposition/post-autotomy", y = "Gene Expression (TPM)") + 
+  scale_y_continuous(breaks=seq(0,55,10), limits = c(0,55))+
+  scale_x_continuous(breaks=seq(0,28,2), limits = c(0,28)) + scale_color_brewer(palette="Paired") +
+  #geom_label_repel(aes(x = timeline, y = meanHOX, label = genes))+
+  #scale_color_hue(c=50) + #ylim(0, 75)+ 
+  geom_errorbar(aes(ymin = ci95lower, ymax = ci95upper), width = 0.5)+
+  theme_bw()
+  
+  caudhoxplot
+```
+
+
+
+```{r}
+######################################################################
+##----->> save plot
+png(filename="G:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/heatmap/HOXC_All_eb3.png", 
+    width = pmax(25,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+caudhoxplot
+dev.off()
+```
+
+```{r}
+caudhoxplot2 <- ggplot(caudhox2_stat[caudhox2_stat$condition == "RT",], aes(x=timeline, y=meanHOX, color=genes)) + 
+  geom_line(linewidth=1) + 
+  geom_point(size = 2) +
+facet_wrap(~condition, nrow = 1) +
+  labs(x="Days post-autotomy", y = "Gene Expression (TPM)") + 
+  scale_y_continuous(breaks=seq(0,55,10), limits = c(0,55))+
+  scale_x_continuous(breaks=seq(0,28,2), limits = c(0,28)) + scale_color_brewer(palette="Paired") +
+  #geom_label_repel(aes(x = timeline, y = meanHOX, label = genes))+
+  #scale_color_hue(c=50) + #ylim(0, 75)+ 
+  geom_errorbar(aes(ymin = ci95lower, ymax = ci95upper), width = 0.5)+
+  theme_bw()
+
+caudhoxplot3 <- ggplot(caudhox2_stat[caudhox2_stat$condition == "ET",], aes(x=timeline, y=meanHOX, color=genes)) + 
+  geom_line(linewidth=0.5) + 
+  geom_point(size = 2) +
+facet_wrap(~condition, nrow = 1) +
+  labs(x="Days post-oviposition", y = "Gene Expression (TPM)") + 
+  scale_y_continuous(breaks=seq(0,55,10), limits = c(0,55))+
+  scale_x_continuous(breaks=seq(14,18,2), limits = c(14,18)) + scale_color_brewer(palette="Paired") +
+  #geom_label_repel(aes(x = timeline, y = meanHOX, label = genes))+
+  #scale_color_hue(c=50) + #ylim(0, 75)+ 
+  geom_errorbar(aes(ymin = ci95lower, ymax = ci95upper), width = 0.5)+
+  theme_bw()
+
+caudhoxplot_sep <- cowplot::plot_grid(caudhoxplot3, caudhoxplot2, ncol=2, rel_widths = c(0.8,2)) 
+caudhoxplot_sep
+
+```
+
+
+```{r}
+######################################################################
+##----->> save plot
+png(filename="G:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/figures/HOXA_All_sep.png", 
+    width = pmax(25,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+caudhoxplot_sep
+dev.off()
+```
+
+```{r}
+
+```
+
+
+####make profile plot for several gene families
+
+
+
+##load change gene TPM tabel structure
+
+
+```{r}
+siggenelist <- unique(intermediate_data$DE_genes$target)
+geneTPM_data <- txi_genes$abundance[siggenelist,]
+geneTPM_data <- data.frame(geneTPM_data)
+geneTPM_data <- rownames_to_column(geneTPM_data, "genes")
+#colnames(geneTPM_data)[1]  <- "genes"
+geneTPM_data <- data.frame(geneTPM_data)
+
+library(reshape2)
+geneTPM_long <- melt(geneTPM_data, id = "genes", variable.name = "label")
+
+```
+
+
+```{r}
+library(dplyr)
+library(tidyr)
+
+#separate 'label' column into 'condition', 'timeline', 'replicate
+geneTPM_long2 <- geneTPM_long %>% separate(label, c('condition', 'timeline', 'replicate'))
+
+##remove X in timeline and replicate 
+geneTPM_long2$timeline<-gsub("X","",as.character(geneTPM_long2$timeline))
+geneTPM_long2$replicate<-gsub("X","",as.character(geneTPM_long2$replicate))
+
+head(geneTPM_long2)
+
+```
+
+
+```{r}
+
+#calculate mean, SD, SE and 95% CI per timepoint for each group
+geneTPM_stat <- geneTPM_long2 %>%
+  group_by(genes, condition, timeline) %>%
+  summarise(
+    count = n(),
+    mean = mean(value,na.rm=TRUE),
+    sd = sd(value, na.rm=TRUE),
+    se = sd/sqrt(count),
+    ci95lower = mean - se*1.96,
+    ci95upper = mean + se*1.96
+  )
+
+
+```
+
+```{r}
+##assign the levels and convert to numeric data
+geneTPM_stat$timeline <- factor(geneTPM_stat$timeline,levels = c("0", "4", "8", "16", "20", "28"))
+
+library(hablar)
+geneTPM2_stat <- geneTPM_stat %>% 
+  convert(num(timeline))
+```
+
+##load gene family tables
+```{r}
+library(readr)
+genefam <- read_csv("H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/newquantanuki/geneforplot.csv")
+
+```
+
+```{r}
+FGFfam_stat <- filter (geneTPM2_stat, genes  %in% genefam$colfam)
+FGFfam_stat$timeline <- factor(FGFfam_stat$timeline,levels = c("0", "4", "8", "16", "20", "28"))
+
+```
+
+
+```{r}
+library(hablar)
+FGFfam2_stat <- FGFfam_stat %>% 
+  convert(num(timeline))
+str(FGFfam2_stat$timeline)
+
+```
+
+
+
+```{r}
+#mean profiles in separate graphs
+FGFfamplot <- ggplot(FGFfam2_stat, aes(x=timeline, y=mean, color=genes, alpha=0.05)) + 
+  geom_line() + 
+  geom_point() + 
+  facet_wrap(~condition, nrow = 1) +
+  labs(x="Days post-oviposition/post-autotomy", y = "Gene Expression (TPM)") + 
+   scale_y_continuous(breaks=seq(0,3400,200), limits = c(0,3400))+
+  scale_x_continuous(breaks=seq(0,28,4), limits = c(0,28)) +
+  geom_errorbar(aes(ymin = ci95lower, ymax = ci95upper), width = 0.5)+
+  #ylim(0, 75)+ 
+  theme_bw()
+
+FGFfamplot
+```
+
+
+```{r}
+######################################################################
+##----->> save plot
+png(filename="H:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/heatmap/Colfamplot.png", 
+    width = pmax(25,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+FGFfamplot
+dev.off()
+```
+
+
+
+##make UPSET Graph
+
+```{r}
+if (!require(devtools)) install.packages("devtools")
+devtools::install_github("yanlinlin82/ggvenn")
+```
+
+```{r}
+library(ggvenn)
+library(UpSetR)
+```
+
+
+```{r}
+unique(intermediate_data$DE_genes$contrast)
+```
+
+
+
+
+```{r}
+contrast2plot <- c("RT.X4-RT.X0", "RT.X8-RT.X4", "RT.X16-RT.X8", "RT.X20-RT.X16", "RT.X28-RT.X20", "RT.X20-ET.X16", "RT.X28-ET.X16")
+targets <- lapply(contrast2plot,function(i){
+  subset(intermediate_data$DE_genes,contrast==i)$target
+})
+names(targets) <- contrast2plot
+g <- plotEulerDiagram(x = targets)
+grid.arrange(g,top=textGrob('DE genes', gp=gpar(cex=1.2)))
+```
+
+```{r}
+upsetdata <- list_to_matrix(targets)
+head(upsetdata)
+```
+
+```{r}
+write.csv(upsetdata, "H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/heatmap/upsetdata2.csv", row.names = TRUE)
+write.xlsx(upsetdata, "H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/heatmap/upsetdata2.xlsx", row.names = TRUE)
+```
+
+
+
+```{r}
+m = make_comb_mat(upsetdata)
+upsetplot <- UpSet(m, 
+      set_order = c("RT.X4-RT.X0", "RT.X8-RT.X4", "RT.X16-RT.X8", "RT.X20-RT.X16", "RT.X28-RT.X20", "RT.X20-ET.X16", "RT.X28-ET.X16"), 
+      top_annotation = upset_top_annotation(m, add_numbers = FALSE , height = unit(6, "cm"),  
+    gp = gpar(fill = comb_degree(m))),
+    right_annotation = upset_right_annotation(m, add_numbers = TRUE),
+      )
+upsetplot
+```
+
+```{r}
+png(filename="H:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/heatmap/DEgenes_upsetplot2.png", 
+    width = pmax(30,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+upsetplot
+dev.off()
+```
+
+
+
+```{r}
+m4 = m[comb_degree(m) < 5]
+upsetplot2 <- UpSet(m4, set_order = c("RT.X4-RT.X0", "RT.X8-RT.X4", "RT.X16-RT.X8", "RT.X20-RT.X16", "RT.X28-RT.X20", "RT.X20-ET.X16", "RT.X28-ET.X16"),
+    top_annotation = upset_top_annotation(m4, add_numbers = TRUE , height = unit(6, "cm"), 
+    gp = gpar(fill = comb_degree(m4))),
+    right_annotation = upset_right_annotation(m4, add_numbers = TRUE))
+upsetplot2
+```
+
+
+```{r}
+png(filename="H:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/heatmap/DEgenes_upsetplot_below5_2.png", 
+    width = pmax(30,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+upsetplot2
+dev.off()
+```
+
+
+```{r}
+upsetdataRT <- subset(upsetdata, select=c(1:5))
+```
+
+
+
+```{r}
+m2 = make_comb_mat(upsetdataRT)
+upsetplot3 <- UpSet(m2, 
+      set_order = c("RT.X4-RT.X0", "RT.X8-RT.X4", "RT.X16-RT.X8", "RT.X20-RT.X16", "RT.X28-RT.X20"), 
+      top_annotation = upset_top_annotation(m2, add_numbers = TRUE , height = unit(6, "cm"),  
+    gp = gpar(fill = comb_degree(m2))),
+    right_annotation = upset_right_annotation(m2, add_numbers = TRUE),
+      )
+upsetplot3
+```
+
+
+```{r}
+png(filename="H:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/heatmap/DEgenes_upsetplotRT.png", 
+    width = pmax(30,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+upsetplot3
+dev.off()
+```
+
+```{r}
+colnames(upsetdata)
+```
+
+```{r}
+upsetdata_rename <- upsetdata
+colnames(upsetdata_rename)[colnames(upsetdata_rename) == "RT.X4-RT.X0"] = "RT_0-4dpa"
+colnames(upsetdata_rename)[colnames(upsetdata_rename) == "RT.X8-RT.X4"] = "RT_4-8dpa"
+colnames(upsetdata_rename)[colnames(upsetdata_rename) == "RT.X16-RT.X8"] = "RT_8-16dpa"
+colnames(upsetdata_rename)[colnames(upsetdata_rename) == "RT.X20-RT.X16"] = "RT_16-20dpa"
+colnames(upsetdata_rename)[colnames(upsetdata_rename) == "RT.X28-RT.X20"] = "RT_20-28dpa"
+colnames(upsetdata_rename)[colnames(upsetdata_rename) == "RT.X20-ET.X16"] = "ET_16dpo-RT_20dpa"
+colnames(upsetdata_rename)[colnames(upsetdata_rename) == "RT.X28-ET.X16"] = "ET_16dpo-RT_28dpa"
+head(upsetdata_rename)
+```
+```{r}
+m5 = make_comb_mat(upsetdata_rename)
+m5 = m5[comb_degree(m5) < 4]
+upsetplot_rename <- UpSet(m5, 
+      set_order = c("RT_0-4dpa" , "RT_4-8dpa" , "RT_8-16dpa" , "RT_16-20dpa" , "RT_20-28dpa" , "ET_16dpo-RT_20dpa" , "ET_16dpo-RT_28dpa"), 
+      top_annotation = upset_top_annotation(m5, add_numbers = TRUE , height = unit(6, "cm"),  
+    gp = gpar(fill = comb_degree(m5))),
+    right_annotation = upset_right_annotation(m5, add_numbers = TRUE),
+      )
+upsetplot_rename
+```
+
+
+```{r}
+png(filename="G:/Data Luthfi/PHD/Gecko\'s\ Sequence/Assembly/quantanuki_fin/heatmap/DEgenes_upsetplot_rename3.png", 
+    width = pmax(25,1)/2.54,height = 15/2.54, units = 'in' ,res = 300)
+upsetplot_rename
+dev.off()
+```
+
+
+```{r}
+upsetdata_rename <- upsetdata %>% 
+                    rename("RT_0-4dpa" = "RT.X4-RT.X0",
+                           "RT_4-8dpa" = "RT.X8-RT.X4",
+                           "RT_8-16dpa" = "RT.X16-RT.X8",
+                           "RT_16-20dpa" = "RT.X20-RT.X16",
+                           "RT_20-28dpa" = "RT.X28-RT.X20",
+                           "ET_16dpo-RT20dpa" = "RT.X20-ET.X16",
+                           "ET_16dpo-RT28dpa" = "RT.X28-ET.X16")
+
+head(upsetdata_rename)
+```
+
+```{r}
+
+```
+
+
+
+##FUNCTIONAL ANALYSIS: GO ENRICHMENTS AND PATHWAY ANALYSIS 
+
+```{r}
+library(org.Gg.eg.db)
+library(org.Hs.eg.db)
+```
+
+
+```{r}
+
+gg <- org.Gg.eg.db
+my.symbols <- intermediate_data$genes_3D_stat$DE.stat$target
+gene_map <- AnnotationDbi::select(gg, 
+       keys = my.symbols,
+       columns = c("ENTREZID","ENSEMBL"),
+       keytype = "SYMBOL")
+
+```
+
+
+```{r}
+head(my.symbols) 
+```
+
+
+```{r}
+search_kegg_organism('Gallus gallus', by='scientific_name')
+```
+
+
+
+```{r}
+library(org.Hs.eg.db)
+hs <- org.Hs.eg.db
+my.symbols <- intermediate_data$genes_3D_stat$DE.stat$target
+gene_map2 <- AnnotationDbi::select(hs, 
+       keys = my.symbols,
+       columns = c("ENTREZID", "ENSEMBL"),
+       keytype = "SYMBOL")
+```
+
+
+
+### GO Enrichments using top GO 
+
+###for RT0-4 data
+
+##creating topGo data
+```{r}
+RT0to4_topGO <- tibble::rownames_to_column(Gene_stat_RT0to4, "gene")
+geneList_RT0to4 <- as.numeric(RT0to4_topGO$P.Value) 
+names(geneList_RT0to4) <- RT0to4_topGO$gene
+# Create topGOData object
+GOdata0to4 <- new("topGOdata",
+    ontology = "BP",
+    allGenes = geneList_RT0to4,
+    geneSelectionFun = function(x)x,
+    annot = annFUN.org, mapping = "org.Gg.eg.db", ID = "SYMBOL")
+
+```
+##The topGOdata object is then used as input for enrichment testing
+```{r}
+# Kolmogorov-Smirnov testing
+resultKS0to4 <- runTest(GOdata0to4, algorithm = "weight01", statistic = "ks")
+```
+
+
+```{r}
+
+tab0to4 <- GenTable(GOdata0to4, raw.p.value = resultKS0to4, topNodes = length(resultKS0to4@score), numChar = 120)
+head(tab0to4, 20)
+
+```
+
+
+## to plot the GO graph for the 5 most significant terms and their parents using 'showSigOfNodes', color coded by enrichment p-value (red is most significant):
+
+```{r}
+
+par(cex = 0.6)
+showSigOfNodes(GOdata0to4, score(resultKS0to4), firstSigNodes = 10, useInfo = "def")
+```
+
+
+
+
+```{r}
+printGraph(GOdata0to4, resultKS0to4, firstSigNodes = 5, fn.prefix = "tGO0to4", useInfo = "def", pdfSW = TRUE)
+
+```
+
+
+
+###for RT4-8 data
+
+##creating topGo data
+```{r}
+RT4to8_topGO <- tibble::rownames_to_column(Gene_stat_RT4to8, "gene")
+geneList_RT4to8 <- as.numeric(RT4to8_topGO$P.Value) 
+names(geneList_RT4to8) <- RT4to8_topGO$gene
+# Create topGOData object
+GOdata4to8 <- new("topGOdata",
+    ontology = "BP",
+    allGenes = geneList_RT4to8,
+    geneSelectionFun = function(x)x,
+    annot = annFUN.org, mapping = "org.Gg.eg.db", ID = "SYMBOL")
+
+```
+
+##The topGOdata object is then used as input for enrichment testing
+```{r}
+# Kolmogorov-Smirnov testing
+resultKS4to8 <- runTest(GOdata4to8, algorithm = "weight01", statistic = "ks")
+```
+
+
+
+```{r}
+
+tab4to8 <- GenTable(GOdata4to8, raw.p.value = resultKS4to8, topNodes = length(resultKS4to8@score), numChar = 120)
+head(tab4to8, 20)
+
+```
+
+
+
+## to plot the GO graph for the 10 most significant terms and their parents using 'showSigOfNodes', color coded by enrichment p-value (red is most significant):
+
+```{r}
+
+par(cex = 0.6)
+showSigOfNodes(GOdata4to8, score(resultKS4to8), firstSigNodes = 10, useInfo = "def")
+```
+
+
+
+```{r}
+printGraph(GOdata4to8, resultKS4to8, firstSigNodes = 5, fn.prefix = "tGO4to8", useInfo = "def", pdfSW = TRUE)
+
+```
+
+###for RT8-16 data
+
+##creating topGo data
+```{r}
+RT8to16_topGO <- tibble::rownames_to_column(Gene_stat_RT8to16, "gene")
+geneList_RT8to16 <- as.numeric(RT8to16_topGO$P.Value) 
+names(geneList_RT8to16) <- RT8to16_topGO$gene
+# Create topGOData object
+GOdata8to16 <- new("topGOdata",
+    ontology = "BP",
+    allGenes = geneList_RT8to16,
+    geneSelectionFun = function(x)x,
+    annot = annFUN.org, mapping = "org.Gg.eg.db", ID = "SYMBOL")
+
+```
+
+##The topGOdata object is then used as input for enrichment testing
+```{r}
+# Kolmogorov-Smirnov testing
+resultKS8to16 <- runTest(GOdata8to16, algorithm = "weight01", statistic = "ks")
+```
+
+
+
+```{r}
+
+tab8to16 <- GenTable(GOdata8to16, raw.p.value = resultKS8to16, topNodes = length(resultKS8to16@score), numChar = 120)
+head(tab8to16, 20)
+
+```
+
+
+
+## to plot the GO graph for the 10 most significant terms and their parents using 'showSigOfNodes', color coded by enrichment p-value (red is most significant):
+
+```{r}
+
+par(cex = 0.6)
+showSigOfNodes(GOdata8to16, score(resultKS8to16), firstSigNodes = 10, useInfo = "def")
+```
+
+
+
+```{r}
+printGraph(GOdata8to16, resultKS8to16, firstSigNodes = 5, fn.prefix = "tGO8to16", useInfo = "def", pdfSW = TRUE)
+
+```
+
+
+###for RT16-20 data
+
+##creating topGo data
+```{r}
+RT16to20_topGO <- tibble::rownames_to_column(Gene_stat_RT16to20, "gene")
+geneList_RT16to20 <- as.numeric(RT16to20_topGO$P.Value) 
+names(geneList_RT16to20) <- RT16to20_topGO$gene
+# Create topGOData object
+GOdata16to20 <- new("topGOdata",
+    ontology = "BP",
+    allGenes = geneList_RT16to20,
+    geneSelectionFun = function(x)x,
+    annot = annFUN.org, mapping = "org.Gg.eg.db", ID = "SYMBOL")
+
+```
+
+##The topGOdata object is then used as input for enrichment testing
+```{r}
+# Kolmogorov-Smirnov testing
+resultKS16to20 <- runTest(GOdata16to20, algorithm = "weight01", statistic = "ks")
+```
+
+
+
+```{r}
+
+tab16to20 <- GenTable(GOdata16to20, raw.p.value = resultKS16to20, topNodes = length(resultKS16to20@score), numChar = 120)
+head(tab16to20,20)
+
+```
+
+
+
+## to plot the GO graph for the 10 most significant terms and their parents using 'showSigOfNodes', color coded by enrichment p-value (red is most significant):
+
+```{r}
+
+par(cex = 0.6)
+showSigOfNodes(GOdata16to20, score(resultKS16to20), firstSigNodes = 10, useInfo = "def")
+```
+
+
+
+```{r}
+printGraph(GOdata16to20, resultKS16to20, firstSigNodes = 5, fn.prefix = "tGO16to20", useInfo = "def", pdfSW = TRUE)
+
+```
+
+
+
+###for RT20-28 data
+
+##creating topGo data
+```{r}
+RT20to28_topGO <- tibble::rownames_to_column(Gene_stat_RT20to28, "gene")
+geneList_RT20to28 <- as.numeric(RT20to28_topGO$P.Value) 
+names(geneList_RT20to28) <- RT20to28_topGO$gene
+# Create topGOData object
+GOdata20to28 <- new("topGOdata",
+    ontology = "BP",
+    allGenes = geneList_RT20to28,
+    geneSelectionFun = function(x)x,
+    annot = annFUN.org, mapping = "org.Gg.eg.db", ID = "SYMBOL")
+
+```
+
+##The topGOdata object is then used as input for enrichment testing
+```{r}
+# Kolmogorov-Smirnov testing
+resultKS20to28 <- runTest(GOdata20to28, algorithm = "weight01", statistic = "ks")
+```
+
+
+
+```{r}
+
+tab20to28 <- GenTable(GOdata20to28, raw.p.value = resultKS20to28, topNodes = length(resultKS20to28@score), numChar = 120)
+head(tab20to28,20)
+
+```
+
+
+## to plot the GO graph for the 10 most significant terms and their parents using 'showSigOfNodes', color coded by enrichment p-value (red is most significant):
+
+```{r}
+
+par(cex = 0.6)
+showSigOfNodes(GOdata20to28, score(resultKS20to28), firstSigNodes = 10, useInfo = "def")
+```
+
+
+
+```{r}
+printGraph(GOdata20to28, resultKS20to28, firstSigNodes = 5, fn.prefix = "tGO20to28", useInfo = "def", pdfSW = TRUE)
+
+```
+
+
+
+###for ET16-RT20 data
+
+##creating topGo data
+```{r}
+ET16toRT20_topGO <- tibble::rownames_to_column(Gene_stat_ET16toRT20, "gene")
+geneList_ET16toRT20 <- as.numeric(ET16toRT20_topGO$P.Value) 
+names(geneList_ET16toRT20) <- ET16toRT20_topGO$gene
+# Create topGOData object
+GOdataET16toRT20 <- new("topGOdata",
+    ontology = "BP",
+    allGenes = geneList_ET16toRT20,
+    geneSelectionFun = function(x)x,
+    annot = annFUN.org, mapping = "org.Gg.eg.db", ID = "SYMBOL")
+
+```
+
+##The topGOdata object is then used as input for enrichment testing
+```{r}
+# Kolmogorov-Smirnov testing
+resultKSET16toRT20 <- runTest(GOdataET16toRT20, algorithm = "weight01", statistic = "ks")
+```
+
+
+
+```{r}
+
+tabET16toRT20 <- GenTable(GOdataET16toRT20, raw.p.value = resultKSET16toRT20, topNodes = length(resultKSET16toRT20@score), numChar = 120)
+head(tabET16toRT20,20)
+
+```
+
+
+## to plot the GO graph for the 10 most significant terms and their parents using 'showSigOfNodes', color coded by enrichment p-value (red is most significant):
+
+```{r}
+
+par(cex = 0.6)
+showSigOfNodes(GOdataET16toRT20, score(resultKSET16toRT20), firstSigNodes = 10, useInfo = "def")
+```
+
+
+
+```{r}
+printGraph(GOdataET16toRT20, resultKSET16toRT20, firstSigNodes = 10, fn.prefix = "tGOET16toRT20", useInfo = "def", pdfSW = TRUE)
+
+```
+
+
+
+
+###for ET16-RT 28 data
+
+##creating topGo data
+```{r}
+ET16toRT28_topGO <- tibble::rownames_to_column(Gene_stat_ET16toRT28, "gene")
+geneList_ET16toRT28 <- as.numeric(ET16toRT28_topGO$P.Value) 
+names(geneList_ET16toRT28) <- ET16toRT28_topGO$gene
+# Create topGOData object
+GOdataET16toRT28 <- new("topGOdata",
+    ontology = "BP",
+    allGenes = geneList_ET16toRT28,
+    geneSelectionFun = function(x)x,
+    annot = annFUN.org, mapping = "org.Gg.eg.db", ID = "SYMBOL")
+
+```
+
+##The topGOdata object is then used as input for enrichment testing
+```{r}
+# Kolmogorov-Smirnov testing
+resultKSET16toRT28 <- runTest(GOdataET16toRT28, algorithm = "weight01", statistic = "ks")
+```
+
+
+
+```{r}
+
+tabET16toRT28 <- GenTable(GOdataET16toRT28, raw.p.value = resultKSET16toRT28, topNodes = length(resultKSET16toRT28@score), numChar = 120)
+head(tabET16toRT28,20)
+
+```
+
+
+## to plot the GO graph for the 10 most significant terms and their parents using 'showSigOfNodes', color coded by enrichment p-value (red is most significant):
+
+```{r}
+
+par(cex = 0.6)
+showSigOfNodes(GOdataET16toRT28, score(resultKSET16toRT28), firstSigNodes = 10, useInfo = "def")
+```
+
+
+
+```{r}
+printGraph(GOdataET16toRT28, resultKSET16toRT28, firstSigNodes = 10, fn.prefix = "tGOET16toRT28", useInfo = "def", pdfSW = TRUE)
+
+```
+
+
+
+
+
+## Funtional Annotation: KEG Enrichment Analysis
+##annotation
+
+```{r}
+deleteDuplicatesDataFrame <- function(df, col) {
+  dup.idx <- which(duplicated(df[col]))
+  return(df[-dup.idx,])
+}
+annotate0to4 <- function(Gene_stat_RT0to4) {
+  RT0to4Mapped <- merge(as.data.frame(Gene_stat_RT0to4), gene_map,
+                     by.x = 'row.names',
+                     by.y = "SYMBOL")
+  RT0to4Mapped <- deleteDuplicatesDataFrame(RT0to4Mapped, 'Row.names')
+  rownames(RT0to4Mapped) <- RT0to4Mapped[,1]
+  RT0to4Mapped <- RT0to4Mapped[,-1]
+}
+```
+
+
+```{r}
+genAnnotRT0to4 <- annotate0to4(Gene_stat_RT0to4)
+knitr::kable(head(genAnnotRT0to4))
+```
+
+
+
+```{r}
+sigGenes0to4 <- genAnnotRT0to4 %>%
+  rownames_to_column('gene') %>%
+  dplyr::filter(genAnnotRT0to4$adj.P.Val < 0.05) %>%
+  column_to_rownames ('gene') %>% 
+  pull("ENTREZID")
+
+keggRes <- enrichKEGG(gene = sigGenes0to4, organism = 'gga')
+```
+
+
+```{r}
+knitr::kable(keggRes)
+```
+
+```{r}
+library("pathview")
+
+entrezgenes0to4 <- genAnnotRT0to4$logFC
+names(entrezgenes0to4) <- genAnnotRT0to4$ENTREZID
+pathview(gene.data = entrezgenes0to4, 
+         pathway.id = "gga04340", 
+         species = "gga", 
+         limit = list(gene = 1, cpd=1),
+         # Low expression color
+         low = list(gene="deepskyblue3",cpd="deepskyblue3"),
+         # Mid Expression color
+         mid = list(gene="gray",cpd="gray"),
+         # High Expression color
+         high = list(gene="gold1",cpd="gold1"))
+```
+
+
+## Funtional Annotation: KEG Enrichment Analysis  with Kegga
+
+#####RT0dpa-4dpa
+
+```{r}
+sigGenes0to4 <- genAnnotRT0to4 %>%
+  rownames_to_column('gene') %>%
+  dplyr::filter(genAnnotRT0to4$adj.P.Val < 0.05) %>%
+  column_to_rownames ('gene') %>% 
+  pull("ENTREZID")
+
+univGenes0to4 <- genAnnotRT0to4 %>%
+  pull("ENTREZID")
+
+
+library("limma")
+```
+
+
+```{r}
+pathwayResults <- kegga(sigGenes0to4, universe = univGenes0to4, 
+                        species = "Gg")
+
+pathwayResults$padj <- p.adjust(pathwayResults$P.DE, method="BH")
+
+#pathwayResults <- subset(pathwayResults, P.DE<.1)
+
+pathwayResults <- subset(pathwayResults, p.adjust(P.DE, method="BH")<.1)
+knitr::kable(head(pathwayResults))
+```
+
+
+```{r}
+renderPathways <- function(listOfPathways, foldChangeData, suffix, keggDataFolder) {
+  # Function renderPathways.
+  # Input: list of Pathways and gene expression
+  # Output: none. Creates images for every pathway in the list.
+  ## Detach dplyr because select causes error.
+  detach("package:dplyr", unload=TRUE)
+  library("pathview")
+  # Limit for log2FC colors
+  limit = list(gene=1, cpd=1) 
+  # Low expression color
+  low = list(gene="deepskyblue3",cpd="deepskyblue3")
+  # Mid Expression color
+  mid = list(gene="gray",cpd="gray")
+  # High Expression color
+  high = list(gene="gold1",cpd="gold1")
+  pv.out.list <- sapply(listOfPathways, function(pid) pathview(
+    gene.data = foldChangeData, pathway.id = pid, species = "gga", 
+    limit=limit, low=low, mid=mid, high=high, min.nnodes = 0, node.sum="mean", 
+    kegg.native = TRUE, res = 600, same.layer = FALSE,
+    bins = list(gene = 20, cpd = 10), cex = 0.1, 
+    out.suffix = suffix, kegg.dir = keggDataFolder))
+  library('dplyr')
+}
+
+# Visualization variables 
+foldChangeData <- genAnnotRT0to4[,c("ENTREZID", "logFC")]
+foldChangeData <- deleteDuplicatesDataFrame(foldChangeData, "ENTREZID")
+foldChangeList <- foldChangeData[,2]
+names(foldChangeList) <- foldChangeData$ENTREZID
+
+# pathwayResults, extract the number of the pathway. e.g. from 
+# "path:dre00022" to 00022
+listOfPathways <- c(substr(c(rownames(pathwayResults)), 9, 13))
+keggDataFolder <- "H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/keggData"
+suffix = "RT0dpa_vs_RT4dpa"
+
+
+```
+
+```{r}
+# Run by uncommenting:
+renderPathways(listOfPathways, foldChangeData = foldChangeList,
+               suffix = suffix, keggDataFolder = keggDataFolder)
+```
+
+#####RT4dpa-8dpa
+
+```{r}
+deleteDuplicatesDataFrame <- function(df, col) {
+  dup.idx <- which(duplicated(df[col]))
+  return(df[-dup.idx,])
+}
+annotate4to8 <- function(Gene_stat_RT4to8) {
+  RT4to8Mapped <- merge(as.data.frame(Gene_stat_RT4to8), gene_map,
+                     by.x = 'row.names',
+                     by.y = "SYMBOL")
+  RT4to8Mapped <- deleteDuplicatesDataFrame(RT4to8Mapped, 'Row.names')
+  rownames(RT4to8Mapped) <- RT4to8Mapped[,1]
+  RT4to8Mapped <- RT4to8Mapped[,-1]
+}
+```
+
+
+```{r}
+genAnnotRT4to8 <- annotate4to8(Gene_stat_RT4to8)
+knitr::kable(head(genAnnotRT4to8))
+```
+
+```{r}
+sigGenes4to8 <- genAnnotRT4to8 %>%
+  rownames_to_column('gene') %>%
+  dplyr::filter(genAnnotRT4to8$adj.P.Val < 0.05) %>%
+  column_to_rownames ('gene') %>% 
+  pull("ENTREZID")
+
+keggRes <- enrichKEGG(gene = sigGenes4to8, organism = 'gga')
+```
+
+
+```{r}
+knitr::kable(keggRes)
+```
+
+```{r}
+library("pathview")
+
+entrezgenes4to8 <- genAnnotRT4to8$logFC
+names(entrezgenes4to8) <- genAnnotRT4to8$ENTREZID
+pathview(gene.data = entrezgenes4to8, 
+         pathway.id = "gga04668", 
+         species = "gga", 
+         limit = list(gene = 1, cpd=1),
+         # Low expression color
+         low = list(gene="deepskyblue3",cpd="deepskyblue3"),
+         # Mid Expression color
+         mid = list(gene="gray",cpd="gray"),
+         # High Expression color
+         high = list(gene="gold1",cpd="gold1"))
+```
+
+
+
+```{r}
+sigGenes4to8 <- genAnnotRT4to8 %>%
+  rownames_to_column('gene') %>%
+  dplyr::filter(genAnnotRT4to8$adj.P.Val < 0.05) %>%
+  column_to_rownames ('gene') %>% 
+  pull("ENTREZID")
+
+univGenes4to8 <- genAnnotRT4to8 %>%
+  pull("ENTREZID")
+
+
+```
+
+
+```{r}
+pathwayResults <- kegga(sigGenes4to8, universe = univGenes4to8, 
+                        species = "Gg")
+
+pathwayResults$padj <- p.adjust(pathwayResults$P.DE, method="BH")
+
+#pathwayResults <- subset(pathwayResults, P.DE<.1)
+
+pathwayResults <- subset(pathwayResults, p.adjust(P.DE, method="BH")<.1)
+knitr::kable(head(pathwayResults))
+```
+
+
+
+```{r}
+renderPathways <- function(listOfPathways, foldChangeData, suffix, keggDataFolder) {
+  # Function renderPathways.
+  # Input: list of Pathways and gene expression
+  # Output: none. Creates images for every pathway in the list.
+  ## Detach dplyr because select causes error.
+  detach("package:dplyr", unload=TRUE)
+  library("pathview")
+  # Limit for log2FC colors
+  limit = list(gene=1, cpd=1) 
+  # Low expression color
+  low = list(gene="deepskyblue3",cpd="deepskyblue3")
+  # Mid Expression color
+  mid = list(gene="gray",cpd="gray")
+  # High Expression color
+  high = list(gene="gold1",cpd="gold1")
+  pv.out.list <- sapply(listOfPathways, function(pid) pathview(
+    gene.data = foldChangeData, pathway.id = pid, species = "gga", 
+    limit=limit, low=low, mid=mid, high=high, min.nnodes = 0, node.sum="mean", 
+    kegg.native = TRUE, res = 600, same.layer = FALSE,
+    bins = list(gene = 20, cpd = 10), cex = 0.1, 
+    out.suffix = suffix, kegg.dir = keggDataFolder))
+  library('dplyr')
+}
+
+# Visualization variables 
+foldChangeData <- genAnnotRT4to8[,c("ENTREZID", "logFC")]
+foldChangeData <- deleteDuplicatesDataFrame(foldChangeData, "ENTREZID")
+foldChangeList <- foldChangeData[,2]
+names(foldChangeList) <- foldChangeData$ENTREZID
+
+# pathwayResults, extract the number of the pathway. e.g. from 
+# "path:dre00022" to 00022
+listOfPathways <- c(substr(c(rownames(pathwayResults)), 9, 13))
+keggDataFolder <- "G:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/keggData"
+suffix = "RT4dpa_vs_RT8dpa"
+
+
+```
+
+```{r}
+# Run by uncommenting:
+renderPathways(listOfPathways, foldChangeData = foldChangeList,
+               suffix = suffix, keggDataFolder = keggDataFolder)
+```
+#####RT8dpa-16dpa
+
+```{r}
+deleteDuplicatesDataFrame <- function(df, col) {
+  dup.idx <- which(duplicated(df[col]))
+  return(df[-dup.idx,])
+}
+annotate8to16 <- function(Gene_stat_RT8to16) {
+  RT8to16Mapped <- merge(as.data.frame(Gene_stat_RT8to16), gene_map,
+                     by.x = 'row.names',
+                     by.y = "SYMBOL")
+  RT8to16Mapped <- deleteDuplicatesDataFrame(RT8to16Mapped, 'Row.names')
+  rownames(RT8to16Mapped) <- RT8to16Mapped[,1]
+  RT8to16Mapped <- RT8to16Mapped[,-1]
+}
+```
+
+
+```{r}
+genAnnotRT8to16 <- annotate8to16(Gene_stat_RT8to16)
+knitr::kable(head(genAnnotRT8to16))
+```
+
+```{r}
+sigGenes8to16 <- genAnnotRT8to16 %>%
+  rownames_to_column('gene') %>%
+  dplyr::filter(genAnnotRT8to16$adj.P.Val < 0.01) %>%
+  column_to_rownames ('gene') %>% 
+  pull("ENTREZID")
+
+keggRes <- enrichKEGG(gene = sigGenes8to16, organism = 'gga')
+```
+
+
+```{r}
+knitr::kable(keggRes)
+```
+
+```{r}
+library("pathview")
+
+entrezgenes8to16 <- genAnnotRT8to16$logFC
+names(entrezgenes8to16) <- genAnnotRT8to16$ENTREZID
+pathview(gene.data = entrezgenes8to16, 
+         pathway.id = "gga04340", 
+         species = "gga", 
+         limit = list(gene = 1, cpd=1),
+         # Low expression color
+         low = list(gene="deepskyblue3",cpd="deepskyblue3"),
+         # Mid Expression color
+         mid = list(gene="gray",cpd="gray"),
+         # High Expression color
+         high = list(gene="gold1",cpd="gold1"))
+```
+
+
+
+```{r}
+sigGenes8to16 <- genAnnotRT8to16 %>%
+  rownames_to_column('gene') %>%
+  dplyr::filter(genAnnotRT8to16$adj.P.Val < 0.01) %>%
+  column_to_rownames ('gene') %>% 
+  pull("ENTREZID")
+
+univGenes8to16 <- genAnnotRT8to16 %>%
+  pull("ENTREZID")
+
+
+```
+
+
+```{r}
+pathwayResults <- kegga(sigGenes8to16, universe = univGenes8to16, 
+                        species = "Gg")
+
+pathwayResults$padj <- p.adjust(pathwayResults$P.DE, method="BH")
+
+#pathwayResults <- subset(pathwayResults, P.DE<.1)
+
+pathwayResults <- subset(pathwayResults, p.adjust(P.DE, method="BH")<.1)
+knitr::kable(head(pathwayResults))
+```
+
+
+
+```{r}
+renderPathways <- function(listOfPathways, foldChangeData, suffix, keggDataFolder) {
+  # Function renderPathways.
+  # Input: list of Pathways and gene expression
+  # Output: none. Creates images for every pathway in the list.
+  ## Detach dplyr because select causes error.
+  detach("package:dplyr", unload=TRUE)
+  library("pathview")
+  # Limit for log2FC colors
+  limit = list(gene=1, cpd=1) 
+  # Low expression color
+  low = list(gene="deepskyblue3",cpd="deepskyblue3")
+  # Mid Expression color
+  mid = list(gene="gray",cpd="gray")
+  # High Expression color
+  high = list(gene="gold1",cpd="gold1")
+  pv.out.list <- sapply(listOfPathways, function(pid) pathview(
+    gene.data = foldChangeData, pathway.id = pid, species = "gga", 
+    limit=limit, low=low, mid=mid, high=high, min.nnodes = 0, node.sum="mean", 
+    kegg.native = TRUE, res = 600, same.layer = FALSE,
+    bins = list(gene = 20, cpd = 10), cex = 0.1, 
+    out.suffix = suffix, kegg.dir = keggDataFolder))
+  library('dplyr')
+}
+
+# Visualization variables 
+foldChangeData <- genAnnotRT8to16[,c("ENTREZID", "logFC")]
+foldChangeData <- deleteDuplicatesDataFrame(foldChangeData, "ENTREZID")
+foldChangeList <- foldChangeData[,2]
+names(foldChangeList) <- foldChangeData$ENTREZID
+
+# pathwayResults, extract the number of the pathway. e.g. from 
+# "path:dre00022" to 00022
+listOfPathways <- c(substr(c(rownames(pathwayResults)), 9, 13))
+keggDataFolder <- "G:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/keggData"
+suffix = "RT8dpa_vs_RT16dpa"
+
+
+```
+
+```{r}
+# Run by uncommenting:
+renderPathways(listOfPathways, foldChangeData = foldChangeList,
+               suffix = suffix, keggDataFolder = keggDataFolder)
+```
+
+#####RT16dpa-20dpa
+
+```{r}
+deleteDuplicatesDataFrame <- function(df, col) {
+  dup.idx <- which(duplicated(df[col]))
+  return(df[-dup.idx,])
+}
+annotate16to20 <- function(Gene_stat_RT16to20) {
+  RT16to20Mapped <- merge(as.data.frame(Gene_stat_RT16to20), gene_map,
+                     by.x = 'row.names',
+                     by.y = "SYMBOL")
+  RT16to20Mapped <- deleteDuplicatesDataFrame(RT16to20Mapped, 'Row.names')
+  rownames(RT16to20Mapped) <- RT16to20Mapped[,1]
+  RT16to20Mapped <- RT16to20Mapped[,-1]
+}
+```
+
+
+```{r}
+genAnnotRT16to20 <- annotate16to20(Gene_stat_RT16to20)
+knitr::kable(head(genAnnotRT16to20))
+```
+
+```{r}
+sigGenes16to20 <- genAnnotRT16to20 %>%
+  rownames_to_column('gene') %>%
+  dplyr::filter(genAnnotRT16to20$adj.P.Val < 0.01) %>%
+  column_to_rownames ('gene') %>% 
+  pull("ENTREZID")
+
+keggRes <- enrichKEGG(gene = sigGenes16to20, organism = 'gga')
+```
+
+
+```{r}
+knitr::kable(keggRes)
+```
+
+```{r}
+library("pathview")
+
+entrezgenes16to20 <- genAnnotRT16to20$logFC
+names(entrezgenes16to20) <- genAnnotRT16to20$ENTREZID
+pathview(gene.data = entrezgenes16to20, 
+         pathway.id = "gga04340", 
+         species = "gga", 
+         limit = list(gene = 1, cpd=1),
+         # Low expression color
+         low = list(gene="deepskyblue3",cpd="deepskyblue3"),
+         # Mid Expression color
+         mid = list(gene="gray",cpd="gray"),
+         # High Expression color
+         high = list(gene="gold1",cpd="gold1"))
+```
+
+
+
+```{r}
+sigGenes16to20 <- genAnnotRT16to20 %>%
+  rownames_to_column('gene') %>%
+  dplyr::filter(genAnnotRT16to20$adj.P.Val < 0.01) %>%
+  column_to_rownames ('gene') %>% 
+  pull("ENTREZID")
+
+univGenes16to20 <- genAnnotRT16to20 %>%
+  pull("ENTREZID")
+
+
+```
+
+
+```{r}
+pathwayResults <- kegga(sigGenes16to20, universe = univGenes16to20, 
+                        species = "Gg")
+
+pathwayResults$padj <- p.adjust(pathwayResults$P.DE, method="BH")
+
+#pathwayResults <- subset(pathwayResults, P.DE<.1)
+
+pathwayResults <- subset(pathwayResults, p.adjust(P.DE, method="BH")<.1)
+knitr::kable(head(pathwayResults))
+```
+
+
+
+```{r}
+renderPathways <- function(listOfPathways, foldChangeData, suffix, keggDataFolder) {
+  # Function renderPathways.
+  # Input: list of Pathways and gene expression
+  # Output: none. Creates images for every pathway in the list.
+  ## Detach dplyr because select causes error.
+  detach("package:dplyr", unload=TRUE)
+  library("pathview")
+  # Limit for log2FC colors
+  limit = list(gene=1, cpd=1) 
+  # Low expression color
+  low = list(gene="deepskyblue3",cpd="deepskyblue3")
+  # Mid Expression color
+  mid = list(gene="gray",cpd="gray")
+  # High Expression color
+  high = list(gene="gold1",cpd="gold1")
+  pv.out.list <- sapply(listOfPathways, function(pid) pathview(
+    gene.data = foldChangeData, pathway.id = pid, species = "gga", 
+    limit=limit, low=low, mid=mid, high=high, min.nnodes = 0, node.sum="mean", 
+    kegg.native = TRUE, res = 600, same.layer = FALSE,
+    bins = list(gene = 20, cpd = 10), cex = 0.1, 
+    out.suffix = suffix, kegg.dir = keggDataFolder))
+  library('dplyr')
+}
+
+# Visualization variables 
+foldChangeData <- genAnnotRT16to20[,c("ENTREZID", "logFC")]
+foldChangeData <- deleteDuplicatesDataFrame(foldChangeData, "ENTREZID")
+foldChangeList <- foldChangeData[,2]
+names(foldChangeList) <- foldChangeData$ENTREZID
+
+# pathwayResults, extract the number of the pathway. e.g. from 
+# "path:dre00022" to 00022
+listOfPathways <- c(substr(c(rownames(pathwayResults)), 9, 13))
+keggDataFolder <- "H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/newquantanuki/keggData"
+suffix = "RT16dpa_vs_RT20dpa"
+
+
+```
+
+```{r}
+# Run by uncommenting:
+renderPathways(listOfPathways, foldChangeData = foldChangeList,
+               suffix = suffix, keggDataFolder = keggDataFolder)
+```
+
+
+#####RT20dpa-28dpa
+
+```{r}
+deleteDuplicatesDataFrame <- function(df, col) {
+  dup.idx <- which(duplicated(df[col]))
+  return(df[-dup.idx,])
+}
+annotate20to28 <- function(Gene_stat_RT20to28) {
+  RT20to28Mapped <- merge(as.data.frame(Gene_stat_RT20to28), gene_map,
+                     by.x = 'row.names',
+                     by.y = "SYMBOL")
+  RT20to28Mapped <- deleteDuplicatesDataFrame(RT20to28Mapped, 'Row.names')
+  rownames(RT20to28Mapped) <- RT20to28Mapped[,1]
+  RT20to28Mapped <- RT20to28Mapped[,-1]
+}
+```
+
+
+```{r}
+genAnnotRT20to28 <- annotate20to28(Gene_stat_RT20to28)
+knitr::kable(head(genAnnotRT20to28))
+```
+
+```{r}
+sigGenes20to28 <- genAnnotRT20to28 %>%
+  rownames_to_column('gene') %>%
+  dplyr::filter(genAnnotRT20to28$adj.P.Val < 0.01) %>%
+  column_to_rownames ('gene') %>% 
+  pull("ENTREZID")
+
+keggRes <- enrichKEGG(gene = sigGenes20to28, organism = 'gga')
+```
+
+
+```{r}
+knitr::kable(keggRes)
+```
+
+```{r}
+library("pathview")
+
+entrezgenes20to28 <- genAnnotRT20to28$logFC
+names(entrezgenes20to28) <- genAnnotRT20to28$ENTREZID
+pathview(gene.data = entrezgenes20to28, 
+         pathway.id = "gga04340", 
+         species = "gga", 
+         limit = list(gene = 1, cpd=1),
+         # Low expression color
+         low = list(gene="deepskyblue3",cpd="deepskyblue3"),
+         # Mid Expression color
+         mid = list(gene="gray",cpd="gray"),
+         # High Expression color
+         high = list(gene="gold1",cpd="gold1"))
+```
+
+
+
+```{r}
+sigGenes20to28 <- genAnnotRT20to28 %>%
+  rownames_to_column('gene') %>%
+  dplyr::filter(genAnnotRT20to28$adj.P.Val < 0.01) %>%
+  column_to_rownames ('gene') %>% 
+  pull("ENTREZID")
+
+univGenes20to28 <- genAnnotRT20to28 %>%
+  pull("ENTREZID")
+
+
+```
+
+```{r}
+pathwayResults <- kegga(sigGenes20to28, universe = univGenes20to28, 
+                        species = "Gg")
+
+pathwayResults$padj <- p.adjust(pathwayResults$P.DE, method="BH")
+```
+
+
+
+```{r}
+pathwayResults <- kegga(sigGenes20to28, universe = univGenes20to28, 
+                        species = "Gg")
+
+pathwayResults$padj <- p.adjust(pathwayResults$P.DE, method="BH")
+
+#pathwayResults <- subset(pathwayResults, P.DE<.1)
+
+pathwayResults <- subset(pathwayResults, p.adjust(P.DE, method="BH")<.1)
+knitr::kable(head(pathwayResults))
+```
+
+
+
+```{r}
+renderPathways <- function(listOfPathways, foldChangeData, suffix, keggDataFolder) {
+  # Function renderPathways.
+  # Input: list of Pathways and gene expression
+  # Output: none. Creates images for every pathway in the list.
+  ## Detach dplyr because select causes error.
+  detach("package:dplyr", unload=TRUE)
+  library("pathview")
+  # Limit for log2FC colors
+  limit = list(gene=1, cpd=1) 
+  # Low expression color
+  low = list(gene="deepskyblue3",cpd="deepskyblue3")
+  # Mid Expression color
+  mid = list(gene="gray",cpd="gray")
+  # High Expression color
+  high = list(gene="gold1",cpd="gold1")
+  pv.out.list <- sapply(listOfPathways, function(pid) pathview(
+    gene.data = foldChangeData, pathway.id = pid, species = "gga", 
+    limit=limit, low=low, mid=mid, high=high, min.nnodes = 0, node.sum="mean", 
+    kegg.native = TRUE, res = 600, same.layer = FALSE,
+    bins = list(gene = 20, cpd = 10), cex = 0.1, 
+    out.suffix = suffix, kegg.dir = keggDataFolder))
+  library('dplyr')
+}
+
+# Visualization variables 
+foldChangeData <- genAnnotRT20to28[,c("ENTREZID", "logFC")]
+foldChangeData <- deleteDuplicatesDataFrame(foldChangeData, "ENTREZID")
+foldChangeList <- foldChangeData[,2]
+names(foldChangeList) <- foldChangeData$ENTREZID
+
+# pathwayResults, extract the number of the pathway. e.g. from 
+# "path:dre00022" to 00022
+listOfPathways <- c(substr(c(rownames(pathwayResults)), 9, 13))
+keggDataFolder <- "G:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/keggData"
+suffix = "RT20dpa_vs_RT28dpa"
+
+
+```
+
+```{r}
+# Run by uncommenting:
+renderPathways(listOfPathways, foldChangeData = foldChangeList,
+               suffix = suffix, keggDataFolder = keggDataFolder)
+```
+
+
+#####ET16dpo-RT20dpa
+
+```{r}
+deleteDuplicatesDataFrame <- function(df, col) {
+  dup.idx <- which(duplicated(df[col]))
+  return(df[-dup.idx,])
+}
+annotateET16toRT20 <- function(Gene_stat_ET16toRT20) {
+  ET16toRT20Mapped <- merge(as.data.frame(Gene_stat_ET16toRT20), gene_map,
+                     by.x = 'row.names',
+                     by.y = "SYMBOL")
+  ET16toRT20Mapped <- deleteDuplicatesDataFrame(ET16toRT20Mapped, 'Row.names')
+  rownames(ET16toRT20Mapped) <- ET16toRT20Mapped[,1]
+  ET16toRT20Mapped <- ET16toRT20Mapped[,-1]
+}
+```
+
+
+```{r}
+genAnnotET16toRT20 <- annotateET16toRT20(Gene_stat_ET16toRT20)
+knitr::kable(head(genAnnotET16toRT20))
+```
+
+```{r}
+sigGenesET16toRT20 <- genAnnotET16toRT20 %>%
+  rownames_to_column('gene') %>%
+  dplyr::filter(genAnnotET16toRT20$adj.P.Val < 0.05) %>%
+  column_to_rownames ('gene') %>% 
+  pull("ENTREZID")
+
+keggRes <- enrichKEGG(gene = sigGenesET16toRT20, organism = 'gga')
+```
+
+
+```{r}
+knitr::kable(keggRes)
+```
+
+```{r}
+library("pathview")
+
+entrezgenesET16toRT20 <- genAnnotET16toRT20$logFC
+names(entrezgenesET16toRT20) <- genAnnotET16toRT20$ENTREZID
+pathview(gene.data = entrezgenesET16toRT20, 
+         pathway.id = "gga04340", 
+         species = "gga", 
+         limit = list(gene = 1, cpd=1),
+         # Low expression color
+         low = list(gene="deepskyblue3",cpd="deepskyblue3"),
+         # Mid Expression color
+         mid = list(gene="gray",cpd="gray"),
+         # High Expression color
+         high = list(gene="gold1",cpd="gold1"))
+```
+
+
+
+```{r}
+sigGenesET16toRT20 <- genAnnotET16toRT20 %>%
+  rownames_to_column('gene') %>%
+  dplyr::filter(genAnnotET16toRT20$adj.P.Val < 0.01) %>%
+  column_to_rownames ('gene') %>% 
+  pull("ENTREZID")
+
+univGenesET16toRT20 <- genAnnotET16toRT20 %>%
+  pull("ENTREZID")
+
+
+```
+
+
+```{r}
+pathwayResults <- kegga(sigGenesET16toRT20, universe = univGenesET16toRT20, 
+                        species = "Gg")
+
+pathwayResults$padj <- p.adjust(pathwayResults$P.DE, method="BH")
+
+#pathwayResults <- subset(pathwayResults, P.DE<.1)
+
+pathwayResults <- subset(pathwayResults, p.adjust(P.DE, method="BH")>.1)
+knitr::kable(head(pathwayResults))
+```
+
+
+
+```{r}
+renderPathways <- function(listOfPathways, foldChangeData, suffix, keggDataFolder) {
+  # Function renderPathways.
+  # Input: list of Pathways and gene expression
+  # Output: none. Creates images for every pathway in the list.
+  ## Detach dplyr because select causes error.
+  detach("package:dplyr", unload=TRUE)
+  library("pathview")
+  # Limit for log2FC colors
+  limit = list(gene=1, cpd=1) 
+  # Low expression color
+  low = list(gene="deepskyblue3",cpd="deepskyblue3")
+  # Mid Expression color
+  mid = list(gene="gray",cpd="gray")
+  # High Expression color
+  high = list(gene="gold1",cpd="gold1")
+  pv.out.list <- sapply(listOfPathways, function(pid) pathview(
+    gene.data = foldChangeData, pathway.id = pid, species = "gga", 
+    limit=limit, low=low, mid=mid, high=high, min.nnodes = 0, node.sum="mean", 
+    kegg.native = TRUE, res = 600, same.layer = FALSE,
+    bins = list(gene = 20, cpd = 10), cex = 0.1, 
+    out.suffix = suffix, kegg.dir = keggDataFolder))
+  library('dplyr')
+}
+
+# Visualization variables 
+foldChangeData <- genAnnotET16toRT20[,c("ENTREZID", "logFC")]
+foldChangeData <- deleteDuplicatesDataFrame(foldChangeData, "ENTREZID")
+foldChangeList <- foldChangeData[,2]
+names(foldChangeList) <- foldChangeData$ENTREZID
+
+# pathwayResults, extract the number of the pathway. e.g. from 
+# "path:dre00022" to 00022
+listOfPathways <- c(substr(c(rownames(pathwayResults)), 9, 13))
+keggDataFolder <- "H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/newquantanuki/keggData"
+suffix = "ET16dpo_vs_RT20dpa"
+
+
+```
+
+```{r}
+# Run by uncommenting:
+renderPathways(listOfPathways, foldChangeData = foldChangeList,
+               suffix = suffix, keggDataFolder = keggDataFolder)
+```
+
+
+#####ET16dpo-RT28dpa
+
+```{r}
+deleteDuplicatesDataFrame <- function(df, col) {
+  dup.idx <- which(duplicated(df[col]))
+  return(df[-dup.idx,])
+}
+annotateET16toRT28 <- function(Gene_stat_ET16toRT28) {
+  ET16toRT28Mapped <- merge(as.data.frame(Gene_stat_ET16toRT28), gene_map,
+                     by.x = 'row.names',
+                     by.y = "SYMBOL")
+  ET16toRT28Mapped <- deleteDuplicatesDataFrame(ET16toRT28Mapped, 'Row.names')
+  rownames(ET16toRT28Mapped) <- ET16toRT28Mapped[,1]
+  ET16toRT28Mapped <- ET16toRT28Mapped[,-1]
+}
+```
+
+
+```{r}
+genAnnotET16toRT28 <- annotateET16toRT28(Gene_stat_ET16toRT28)
+knitr::kable(head(genAnnotET16toRT28))
+```
+
+```{r}
+sigGenesET16toRT28 <- genAnnotET16toRT28 %>%
+  rownames_to_column('gene') %>%
+  dplyr::filter(genAnnotET16toRT28$adj.P.Val < 0.05) %>%
+  column_to_rownames ('gene') %>% 
+  pull("ENTREZID")
+
+keggRes <- enrichKEGG(gene = sigGenesET16toRT28, organism = 'gga')
+```
+
+
+```{r}
+knitr::kable(keggRes)
+```
+
+```{r}
+library("pathview")
+
+entrezgenesET16toRT28 <- genAnnotET16toRT28$logFC
+names(entrezgenesET16toRT28) <- genAnnotET16toRT28$ENTREZID
+pathview(gene.data = entrezgenesET16toRT28, 
+         pathway.id = "gga04340", 
+         species = "gga", 
+         limit = list(gene = 1, cpd=1),
+         # Low expression color
+         low = list(gene="deepskyblue3",cpd="deepskyblue3"),
+         # Mid Expression color
+         mid = list(gene="gray",cpd="gray"),
+         # High Expression color
+         high = list(gene="gold1",cpd="gold1"))
+```
+
+
+
+```{r}
+sigGenesET16toRT28 <- genAnnotET16toRT28 %>%
+  rownames_to_column('gene') %>%
+  dplyr::filter(genAnnotET16toRT28$adj.P.Val < 0.01) %>%
+  column_to_rownames ('gene') %>% 
+  pull("ENTREZID")
+
+univGenesET16toRT28 <- genAnnotET16toRT28 %>%
+  pull("ENTREZID")
+
+
+```
+
+
+```{r}
+pathwayResults <- kegga(sigGenesET16toRT28, universe = univGenesET16toRT28, 
+                        species = "Gg")
+
+pathwayResults$padj <- p.adjust(pathwayResults$P.DE, method="BH")
+
+#pathwayResults <- subset(pathwayResults, P.DE<.1)
+
+pathwayResults <- subset(pathwayResults, p.adjust(P.DE, method="BH")>.1)
+knitr::kable(head(pathwayResults))
+```
+
+
+
+```{r}
+renderPathways <- function(listOfPathways, foldChangeData, suffix, keggDataFolder) {
+  # Function renderPathways.
+  # Input: list of Pathways and gene expression
+  # Output: none. Creates images for every pathway in the list.
+  ## Detach dplyr because select causes error.
+  detach("package:dplyr", unload=TRUE)
+  library("pathview")
+  # Limit for log2FC colors
+  limit = list(gene=1, cpd=1) 
+  # Low expression color
+  low = list(gene="deepskyblue3",cpd="deepskyblue3")
+  # Mid Expression color
+  mid = list(gene="gray",cpd="gray")
+  # High Expression color
+  high = list(gene="gold1",cpd="gold1")
+  pv.out.list <- sapply(listOfPathways, function(pid) pathview(
+    gene.data = foldChangeData, pathway.id = pid, species = "gga", 
+    limit=limit, low=low, mid=mid, high=high, min.nnodes = 0, node.sum="mean", 
+    kegg.native = TRUE, res = 600, same.layer = FALSE,
+    bins = list(gene = 20, cpd = 10), cex = 0.1, 
+    out.suffix = suffix, kegg.dir = keggDataFolder))
+  library('dplyr')
+}
+
+# Visualization variables 
+foldChangeData <- genAnnotET16toRT28[,c("ENTREZID", "logFC")]
+foldChangeData <- deleteDuplicatesDataFrame(foldChangeData, "ENTREZID")
+foldChangeList <- foldChangeData[,2]
+names(foldChangeList) <- foldChangeData$ENTREZID
+
+# pathwayResults, extract the number of the pathway. e.g. from 
+# "path:dre00022" to 00022
+listOfPathways <- c(substr(c(rownames(pathwayResults)), 9, 13))
+keggDataFolder <- "G:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/keggData"
+suffix = "ET16dpo_vs_RT28dpa"
+
+
+```
+
+```{r}
+# Run by uncommenting:
+renderPathways(listOfPathways, foldChangeData = foldChangeList,
+               suffix = suffix, keggDataFolder = keggDataFolder)
+```
+
+
+
+
+## Create data table for PATHVIEW
+
+```{r}
+LogFC_RT0to4 <- genAnnotRT0to4$logFC
+LogFC_RT4to8 <- genAnnotRT4to8$logFC
+LogFC_RT8to16 <-genAnnotRT8to16$logFC
+LogFC_RT16to20 <-genAnnotRT16to20$logFC
+LogFC_RT20to28 <-genAnnotRT20to28$logFC
+LogFC_ET16toRT20 <- genAnnotET16toRT20$logFC
+LogFC_ET16toRT28 <- genAnnotET16toRT28$logFC
+
+```
+
+```{r}
+Adj.P.Val_RT0to4 <- genAnnotRT0to4$adj.P.Val
+Adj.P.Val_RT4to8 <- genAnnotRT4to8$adj.P.Val
+Adj.P.Val_RT8to16 <-genAnnotRT8to16$adj.P.Val
+Adj.P.Val_RT16to20 <-genAnnotRT16to20$adj.P.Val
+Adj.P.Val_RT20to28 <-genAnnotRT20to28$adj.P.Val
+Adj.P.Val_ET16toRT20 <- genAnnotET16toRT20$adj.P.Val
+Adj.P.Val_ET16toRT28 <- genAnnotET16toRT28$adj.P.Val
+```
+
+```{r}
+
+LogFC_RT <- cbind(genAnnotRT0to4,LogFC_RT0to4,LogFC_RT4to8,LogFC_RT8to16,LogFC_RT16to20,LogFC_RT20to28)
+LogFC_RT2 <- subset(LogFC_RT, select=c(7:13))
+Adj.P.Val_RT <- cbind(genAnnotRT0to4,Adj.P.Val_RT0to4,Adj.P.Val_RT4to8,Adj.P.Val_RT8to16,Adj.P.Val_RT16to20,Adj.P.Val_RT20to28)
+Adj.P.Val_RT2 <- subset(Adj.P.Val_RT, select=c(7:13))
+
+
+```
+
+```{r}
+Stat_RT <- cbind(LogFC_RT2,Adj.P.Val_RT2)
+Stat_RT2 <- subset(Stat_RT,select=c(1:7,10:14))
+```
+
+
+```{r}
+Stat_ETvsRT <- cbind(genAnnotET16toRT20,LogFC_ET16toRT20,LogFC_ET16toRT28,Adj.P.Val_ET16toRT20,Adj.P.Val_ET16toRT28)
+Stat_ETvsRT2 <-subset(Stat_ETvsRT, select=c(7:12))
+```
+
+```{r}
+LogFCPval_All<- cbind(genAnnotRT0to4,LogFC_RT0to4,LogFC_RT4to8,LogFC_RT8to16,LogFC_RT16to20,LogFC_RT20to28,LogFC_ET16toRT20,LogFC_ET16toRT28,Adj.P.Val_RT0to4,Adj.P.Val_RT4to8,Adj.P.Val_RT8to16,Adj.P.Val_RT16to20,Adj.P.Val_RT20to28,Adj.P.Val_ET16toRT20,Adj.P.Val_ET16toRT28)
+
+LogFCPval_All2 <- subset(LogFCPval_All, select=c(7:22))
+
+
+```
+
+```{r}
+write.csv(LogFC_RT2, "H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/pathvisio/LogFC_RT2.csv", row.names = TRUE, quote = FALSE)
+write.csv(Adj.P.Val_RT2, "H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/pathvisio/Adj.P.Val_RT2.csv", row.names = TRUE, quote = FALSE)
+write.csv(Stat_RT2, "H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/pathvisio/Stat_RT.csv", row.names = TRUE, quote = FALSE)
+write.csv(Stat_ETvsRT2, "H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/pathvisio/Stat_ET.csv", row.names = TRUE, quote = FALSE)
+write.csv(LogFCPval_All2, "H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/pathvisio/LogFCPval_All.csv", row.names = TRUE, quote = FALSE)
+
+
+```
+
+
+
+```{r}
+write.csv(genAnnotRT0to4, "H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/pathvisio/annoexprestatRT0to4.csv", row.names = TRUE, quote = FALSE)
+write.csv(genAnnotRT4to8, "H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/pathvisio/annoexprestatRT4to8.csv", row.names = TRUE, quote = FALSE)
+write.csv(genAnnotRT8to16, "H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/pathvisio/annoexprestatRT8to16.csv", row.names = TRUE, quote = FALSE)
+write.csv(genAnnotRT16to20, "H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/pathvisio/annoexprestatRT16to20.csv", row.names = TRUE, quote = FALSE)
+write.csv(genAnnotRT20to28, "H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/pathvisio/annoexprestatRT20to28.csv", row.names = TRUE, quote = FALSE)
+write.csv(genAnnotET16toRT20, "H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/pathvisio/annoexprestatET16toRT20.csv", row.names = TRUE, quote = FALSE)
+write.csv(genAnnotET16toRT28, "H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/pathvisio/annoexprestatET16toRT28.csv", row.names = TRUE, quote = FALSE)
+
+
+```
+
+
+```{r}
+Significant_DE_genes_list_and_statistics <- read_csv("H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/3drnaseq/3D_fin_annoonly_output2/result/Significant DE genes list and statistics.csv")
+write.xlsx(Significant_DE_genes_list_and_statistics, "H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/Significant DE genes list and statistics.xlsx", row.names = TRUE)
+```
+
+```{r}
+Significant_DE_genes_list_and_statistics <- read_csv("H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/3drnaseq/3D_fin_annoonly_output2/result/DE gene testing statistics.csv")
+write.xlsx(Significant_DE_genes_list_and_statistics, "H:/Data Luthfi/PHD/Gecko's Sequence/Assembly/quantanuki_fin/DE gene testing statistics.xlsx", row.names = TRUE)
+
+```
+
+
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=true}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
